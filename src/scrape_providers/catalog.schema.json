@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/scrape-providers/catalog.schema.json",
+  "title": "AI provider catalog",
+  "description": "Output of scrape-providers: model capabilities plus per-provider offerings. Empty/None values are pruned before emission, so most fields are optional.",
+  "type": "object",
+  "required": ["models", "providers"],
+  "additionalProperties": false,
+  "properties": {
+    "models": {
+      "description": "Intrinsic model capabilities; each entry's `name` is its canonical model id.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/modelCapabilities" }
+    },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/provider" }
+    }
+  },
+  "$defs": {
+    "modelCapabilities": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "display_name": { "type": "string" },
+        "context_window": { "type": "integer", "minimum": 1 },
+        "max_output_tokens": { "type": "integer", "minimum": 1 },
+        "modalities": { "type": "array", "items": { "type": "string" } },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "open_source": { "type": "boolean" },
+        "arena": { "$ref": "#/$defs/arena" }
+      }
+    },
+    "arena": {
+      "type": "object",
+      "required": ["rank", "elo"],
+      "additionalProperties": false,
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "elo": { "type": "number" },
+        "votes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "required": ["name", "models"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "root_url": { "type": "string", "format": "uri" },
+        "endpoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/endpoint" }
+        },
+        "models": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/offering" }
+        }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["protocol", "endpoint"],
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "enum": ["chat_completions", "responses", "messages"]
+        },
+        "endpoint": { "type": "string" },
+        "hosted_tools": { "type": "array", "items": { "type": "string" } },
+        "local_tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "offering": {
+      "type": "object",
+      "required": ["canonical_id", "provider_model_id"],
+      "additionalProperties": false,
+      "properties": {
+        "canonical_id": { "type": "string" },
+        "provider_model_id": { "type": "string" },
+        "pricing": { "$ref": "#/$defs/pricing" }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": { "type": "string" },
+        "unit": { "type": "string" },
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "extra": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    }
+  }
+}
