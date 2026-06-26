@@ -83,9 +83,7 @@ def load_curated() -> dict[str, list[str]]:
 def validate_curated(data: object) -> None:
     """Raise ValueError unless ``data`` is a mapping of provider -> list of str ids."""
     if not isinstance(data, dict) or not all(
-        isinstance(k, str)
-        and isinstance(v, list)
-        and all(isinstance(i, str) for i in v)
+        isinstance(k, str) and isinstance(v, list) and all(isinstance(i, str) for i in v)
         for k, v in data.items()
     ):
         raise ValueError("curated list must be a mapping of provider name -> list of model ids")

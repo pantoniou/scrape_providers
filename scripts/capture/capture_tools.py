@@ -64,6 +64,7 @@ def extract_system_prompt(body: dict) -> str:
             parts.append(_text_blocks(turn.get("content")))
     return "\n\n".join(p for p in parts if p).strip()
 
+
 # Keys that indicate an LLM request body (so we don't grab some unrelated POST
 # that happens to have a "tools" field). Host-agnostic on purpose: agents that
 # use login-based auth talk to their own hosts (chatgpt.com, etc.), not the

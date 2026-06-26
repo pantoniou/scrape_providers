@@ -76,9 +76,7 @@ class AnthropicScraper(Scraper):
     def _fetch_models(self) -> list[dict]:
         key = os.environ.get("ANTHROPIC_API_KEY")
         if not key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY is required to scrape the Anthropic models API"
-            )
+            raise RuntimeError("ANTHROPIC_API_KEY is required to scrape the Anthropic models API")
         headers = {"x-api-key": key, "anthropic-version": API_VERSION}
         out: list[dict] = []
         after_id: str | None = None

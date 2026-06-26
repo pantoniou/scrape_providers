@@ -100,8 +100,6 @@ class OpenRouterScraper(Scraper):
         return Provider(
             name=self.name,
             root_url="https://openrouter.ai",
-            endpoints=[
-                endpoint_for(self.name, "chat_completions", "/api/v1/chat/completions")
-            ],
+            endpoints=[endpoint_for(self.name, "chat_completions", "/api/v1/chat/completions")],
             models=models,
         )

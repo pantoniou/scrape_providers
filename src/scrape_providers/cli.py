@@ -119,8 +119,7 @@ def _list_agent_tools(agent: str) -> int:
             p = agent_profiles.get(name)
             src = "captured" if agent_profiles.has_capture(name) else "curated"
             print(
-                f"# {name} — {p['description']} (protocol: {p['protocol']}) "
-                f"[{src}] — {p['source']}"
+                f"# {name} — {p['description']} (protocol: {p['protocol']}) [{src}] — {p['source']}"
             )
             _print_tool_lines(name, indent="  ")
         return 0
@@ -210,6 +209,14 @@ def main(argv: list[str] | None = None) -> int:
         default=True,
         help="Annotate models with LMArena Elo / rank (default: on; --no-arena to skip "
         "the extra network fetch).",
+    )
+    parser.add_argument(
+        "--agents",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include the `agents` section (agent harnesses: developer, native "
+        "provider, system prompt, tool schemas) and annotate models with their "
+        "canonical agent (default: on; --no-agents to omit all agent output).",
     )
     parser.add_argument(
         "--validate",
@@ -339,9 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         if show_model is not None:
             kept = [m for m in provider.models if m.id == show_model]
             if not kept:
-                print(
-                    f"provider {name!r} has no model {show_model!r}", file=sys.stderr
-                )
+                print(f"provider {name!r} has no model {show_model!r}", file=sys.stderr)
                 return 1
             provider = provider.model_copy(update={"models": kept})
         results.append(provider)
@@ -354,12 +359,16 @@ def main(argv: list[str] | None = None) -> int:
         import jsonschema
 
         try:
-            schema_mod.validate_catalog(pruned_catalog(results))
+            schema_mod.validate_catalog(pruned_catalog(results, include_agents=args.agents))
         except jsonschema.ValidationError as exc:
             print(f"catalog failed schema validation: {exc.message}", file=sys.stderr)
             return 1
 
-    output = to_markdown(results) if args.format == "markdown" else to_yaml(results)
+    output = (
+        to_markdown(results, include_agents=args.agents)
+        if args.format == "markdown"
+        else to_yaml(results, include_agents=args.agents)
+    )
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(output)

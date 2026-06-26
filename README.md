@@ -52,6 +52,10 @@ scrape-providers --set-curated my-curated.yaml
 scrape-providers --curated -f markdown
 scrape-providers --curated --no-arena -f markdown
 
+# The `agents` section (harness developer, system prompt, tool schemas) is on by
+# default; drop it (and the per-model agent tags) with --no-agents
+scrape-providers --no-agents
+
 # Validate the output against the JSON schema before emitting
 scrape-providers --validate
 
@@ -114,11 +118,17 @@ scrape-providers
 
 ## Output schema
 
-The YAML catalog has two top-level sections:
+The YAML catalog has three top-level sections:
 
 - `models` — a list of each model's intrinsic capabilities; each entry's `name`
   is its **canonical id** (plus display name, context window, max output,
-  modalities, capabilities, `open_source`, arena Elo/rank).
+  modalities, capabilities, `open_source`, arena Elo/rank, and `agents` — the
+  canonical agent harness(es) that natively drive it, e.g. gpt → `codex`).
+- `agents` — each known coding-agent harness, fully described: `developer` (the
+  company that builds it), `native_provider` (the catalog provider it natively
+  targets; omitted for model-agnostic harnesses like opencode), `protocol`, the
+  vendored `system_prompt`, and the vendored `tools` (tool name → schema). On by
+  default; `--no-agents` omits this section *and* the per-model `agents` tags.
 - `providers` — each provider has a `root_url` (API host root), an `endpoints`
   list of `{protocol, endpoint, tools}` entries (a provider may expose its models
   over several protocols — `chat_completions`, `responses`, `messages` — e.g.

@@ -15,6 +15,11 @@
     "providers": {
       "type": "array",
       "items": { "$ref": "#/$defs/provider" }
+    },
+    "agents": {
+      "description": "Coding-agent harnesses, each fully described (developer, native provider, system prompt, tool schemas).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/agent" }
     }
   },
   "$defs": {
@@ -30,7 +35,35 @@
         "modalities": { "type": "array", "items": { "type": "string" } },
         "capabilities": { "type": "array", "items": { "type": "string" } },
         "open_source": { "type": "boolean" },
-        "arena": { "$ref": "#/$defs/arena" }
+        "arena": { "$ref": "#/$defs/arena" },
+        "agents": {
+          "description": "Canonical agent harness(es) that natively drive this model.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "developer": { "type": "string" },
+        "native_provider": { "type": "string" },
+        "protocol": { "type": "string" },
+        "system_prompt": { "type": "string" },
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "description": { "type": "string" },
+              "schema": { "type": "object" }
+            }
+          }
+        }
       }
     },
     "arena": {

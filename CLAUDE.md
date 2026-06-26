@@ -48,13 +48,21 @@ output formatting, so a change in one layer doesn't ripple into the others.
 - `providers/` — one module per provider. Provider quirks (auth, JSON vs HTML,
   pagination, prefix handling) stay isolated here.
 - `registry.py` — maps provider name → scraper class (`available()`, `get()`).
-- `emit.py` — `build_catalog` splits the scraped data into two top-level
+- `emit.py` — `build_catalog` splits the scraped data into three top-level
   sections: `models` (a list of intrinsic capabilities, each entry's `name` is its
-  canonical id — context, modalities, capabilities, open_source, arena) and
-  `providers` (each with `root_url`, an `endpoints` list of {protocol, endpoint},
-  and offerings of `canonical_id`/`provider_model_id`/`pricing`). `to_yaml` emits
-  this with intentional field order (`sort_keys=False`, models list sorted by name
-  for determinism), pruning None/empty; `to_markdown` is the human view.
+  canonical id — context, modalities, capabilities, open_source, arena, plus
+  `agents`: the canonical agent harness(es) that natively drive it), `providers`
+  (each with `root_url`, an `endpoints` list of {protocol, endpoint}, and
+  offerings of `canonical_id`/`provider_model_id`/`pricing`), and `agents` (built
+  from `agent_profiles.build_agents()` — see below). A model is tagged with agent
+  A when its native provider serves it (bare id) or its id carries A's
+  `native_provider` as a vendor prefix (OpenRouter's `openai/…`). `build_catalog`
+  takes `include_agents=True`; `--no-agents` threads `include_agents=False`
+  through `pruned_catalog`/`to_yaml`/`to_markdown` to drop both the section and
+  the per-model tags. `to_yaml` emits with intentional field order
+  (`sort_keys=False`, models list sorted by name for determinism), pruning
+  None/empty; `to_markdown` is the human view (agents shown as tool names, not
+  full schemas).
 - `canonical.py` — `canonical_id` maps a provider-specific model id to a shared
   key (drops vendor prefix + lowercases; `ALIASES` overrides), so the same model
   served by multiple providers collapses into one `models` entry.
@@ -68,7 +76,13 @@ output formatting, so a change in one layer doesn't ripple into the others.
 - `agent_profiles.py` — curated tool/function sets of well-known agent harnesses
   (Codex: shell/apply_patch/update_plan; Claude Code: Bash/Read/Edit/…). These are
   harness-level and model-agnostic (any function-calling model can be driven by
-  them), so they're separate from provider data. CLI: `--list-agent-tools [AGENT]`,
+  them), so they're separate from provider data. Each profile also carries a
+  `developer` (the company that builds it) and a `provider` (the native catalog
+  provider it targets, `None` for model-agnostic harnesses); `build_agents()`
+  assembles the full catalog `agents` section (name, developer, native_provider,
+  protocol, system_prompt, tools) and `native_provider_agents()` maps a provider
+  key → agent name(s) for the per-model tagging in `emit`. CLI:
+  `--list-agent-tools [AGENT]`,
   which derives tool names from a vendored capture when present (`tool_names()` /
   `has_capture()`), falling back to the curated `tools` list otherwise.
   Full tool JSON schemas aren't scrapable (Rust/Zod source, or closed) — instead

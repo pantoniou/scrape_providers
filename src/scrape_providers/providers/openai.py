@@ -131,7 +131,9 @@ def _looks_like_model(cell: str) -> bool:
     return cell == cell.lower() and any(ch.isalpha() for ch in cell)
 
 
-def _row_pricing(row: list[str], input_col: int, output_col: int, cached_col: int | None) -> Pricing | None:
+def _row_pricing(
+    row: list[str], input_col: int, output_col: int, cached_col: int | None
+) -> Pricing | None:
     input_price = _money(row[input_col])
     output_price = _money(row[output_col])
     if input_price is None and output_price is None:

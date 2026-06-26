@@ -59,6 +59,46 @@ def test_canonical_collapse_across_providers():
     assert openai_off["canonical_id"] == openrouter_off["canonical_id"] == "gpt-5.5"
 
 
+def test_agents_section_and_model_annotation():
+    from scrape_providers.emit import build_catalog
+
+    providers = [
+        Provider(name="openai", models=[Model(id="gpt-5.5")]),
+        Provider(name="anthropic", models=[Model(id="claude-opus-4-8")]),
+        Provider(
+            name="openrouter",
+            models=[Model(id="openai/gpt-5.5"), Model(id="z-ai/glm-5.2")],
+        ),
+    ]
+    catalog = build_catalog(providers)
+
+    # agents section: all known harnesses, fully described
+    agents = {a["name"]: a for a in catalog["agents"]}
+    assert {"codex", "claude_code", "opencode"} <= set(agents)
+    assert agents["codex"]["developer"] == "OpenAI"
+    assert agents["codex"]["native_provider"] == "openai"
+    assert agents["claude_code"]["native_provider"] == "anthropic"
+    # opencode is model-agnostic: no native provider
+    assert agents["opencode"]["native_provider"] is None
+    # vendored data is folded in (captures are committed)
+    assert agents["codex"]["tools"] and agents["codex"]["system_prompt"]
+
+    # models are tagged with the canonical agent that natively drives them
+    by_name = {m["name"]: m for m in catalog["models"]}
+    assert by_name["gpt-5.5"]["agents"] == ["codex"]  # native + openrouter prefix
+    assert by_name["claude-opus-4-8"]["agents"] == ["claude_code"]
+    assert by_name["glm-5.2"]["agents"] == []  # no native agent
+
+
+def test_no_agents_omits_all_agent_output():
+    from scrape_providers.emit import build_catalog
+
+    providers = [Provider(name="openai", models=[Model(id="gpt-5.5")])]
+    catalog = build_catalog(providers, include_agents=False)
+    assert "agents" not in catalog
+    assert catalog["models"][0]["agents"] == []  # pruned away on emit
+
+
 def test_to_markdown():
     provider = Provider(
         name="demo",
@@ -217,8 +257,10 @@ def test_tokens_formatting():
 def test_anthropic_pricing_retries_until_plausible(monkeypatch):
     from scrape_providers.providers import anthropic
 
-    short = "<table><tr><th>Model</th><th>Base Input Tokens</th><th>Output Tokens</th></tr>" \
-            "<tr><td>Claude Opus 4.8</td><td>$5 / MTok</td><td>$25 / MTok</td></tr></table>"
+    short = (
+        "<table><tr><th>Model</th><th>Base Input Tokens</th><th>Output Tokens</th></tr>"
+        "<tr><td>Claude Opus 4.8</td><td>$5 / MTok</td><td>$25 / MTok</td></tr></table>"
+    )
     rows = "".join(
         f"<tr><td>Model {i}</td><td>${i} / MTok</td><td>${i} / MTok</td></tr>" for i in range(8)
     )
@@ -267,9 +309,7 @@ def test_arena_parse_overall_block_and_join():
     assert len(scores) == 3  # only the overall block
     assert scores["gpt-5.5"].elo == 1474.85  # not the coding-category 1490
 
-    providers = [
-        Provider(name="openai", models=[Model(id="gpt-5.5"), Model(id="gpt-5.5-pro")])
-    ]
+    providers = [Provider(name="openai", models=[Model(id="gpt-5.5"), Model(id="gpt-5.5-pro")])]
     arena.annotate(providers, scores)
     models = {m.id: m for m in providers[0].models}
     assert models["gpt-5.5"].arena.rank == 2
@@ -328,13 +368,21 @@ def test_catalog_validates_against_schema():
             ],
         )
     ]
-    validate_catalog(pruned_catalog(providers))  # valid: should not raise
+    catalog = pruned_catalog(providers)
+    validate_catalog(catalog)  # valid (incl. the agents section): should not raise
+    assert catalog["agents"]  # agents section is emitted and schema-valid
 
     # an unknown protocol must fail validation
     bad = pruned_catalog(providers)
     bad["providers"][0]["endpoints"][0]["protocol"] = "grpc"
     with pytest.raises(jsonschema.ValidationError):
         validate_catalog(bad)
+
+    # a stray key in an agent entry must fail (additionalProperties: false)
+    bad_agent = pruned_catalog(providers)
+    bad_agent["agents"][0]["bogus"] = 1
+    with pytest.raises(jsonschema.ValidationError):
+        validate_catalog(bad_agent)
 
 
 def test_cli_validate_file(tmp_path, capsys):
@@ -432,7 +480,9 @@ def test_tool_names_prefers_capture(monkeypatch):
     from scrape_providers import agent_profiles
 
     # capture present -> names derived from it (sorted)
-    monkeypatch.setattr(agent_profiles, "load_schemas", lambda a: {"exec_command": {}, "web_search": {}})
+    monkeypatch.setattr(
+        agent_profiles, "load_schemas", lambda a: {"exec_command": {}, "web_search": {}}
+    )
     assert agent_profiles.tool_names("codex") == ["exec_command", "web_search"]
     assert agent_profiles.has_capture("codex")
 
@@ -454,20 +504,26 @@ def test_extract_system_prompt_shapes():
     from scripts.capture.capture_tools import extract_system_prompt
 
     # Anthropic: system as text blocks
-    assert extract_system_prompt(
-        {"system": [{"type": "text", "text": "You are Claude."}], "messages": []}
-    ) == "You are Claude."
+    assert (
+        extract_system_prompt(
+            {"system": [{"type": "text", "text": "You are Claude."}], "messages": []}
+        )
+        == "You are Claude."
+    )
     # OpenAI Responses: instructions string
     assert extract_system_prompt({"instructions": "Be helpful.", "input": []}) == "Be helpful."
     # Chat completions: leading system turn, stops at first user turn
-    assert extract_system_prompt(
-        {
-            "messages": [
-                {"role": "system", "content": "Rules."},
-                {"role": "user", "content": "ignore me"},
-            ]
-        }
-    ) == "Rules."
+    assert (
+        extract_system_prompt(
+            {
+                "messages": [
+                    {"role": "system", "content": "Rules."},
+                    {"role": "user", "content": "ignore me"},
+                ]
+            }
+        )
+        == "Rules."
+    )
 
 
 def test_cli_agent_system_prompt(capsys, monkeypatch, tmp_path):

@@ -20,6 +20,8 @@ from importlib.resources import files
 AGENT_PROFILES: dict[str, dict] = {
     "codex": {
         "description": "OpenAI Codex CLI",
+        "developer": "OpenAI",
+        "provider": "openai",  # native catalog provider it targets
         "protocol": "responses",
         "source": "https://github.com/openai/codex",
         "tools": [
@@ -30,6 +32,8 @@ AGENT_PROFILES: dict[str, dict] = {
     },
     "opencode": {
         "description": "opencode (sst) — open-source terminal coding agent",
+        "developer": "sst",
+        "provider": None,  # model-agnostic: no single native provider
         "protocol": "various",  # provider-agnostic, via the AI SDK
         "source": "https://github.com/sst/opencode",
         "tools": [
@@ -52,6 +56,8 @@ AGENT_PROFILES: dict[str, dict] = {
     },
     "claude_code": {
         "description": "Anthropic Claude Code",
+        "developer": "Anthropic",
+        "provider": "anthropic",  # native catalog provider it targets
         "protocol": "messages",
         "source": "https://docs.claude.com/en/docs/claude-code",
         "tools": [
@@ -83,9 +89,35 @@ def get(name: str) -> dict:
     try:
         return AGENT_PROFILES[name]
     except KeyError:
-        raise KeyError(
-            f"unknown agent {name!r}; available: {', '.join(available())}"
-        ) from None
+        raise KeyError(f"unknown agent {name!r}; available: {', '.join(available())}") from None
+
+
+def agent_catalog_entry(name: str) -> dict:
+    """Assemble the full catalog description of one agent from vendored data."""
+    profile = get(name)
+    return {
+        "name": name,
+        "developer": profile.get("developer"),
+        "native_provider": profile.get("provider"),
+        "protocol": profile.get("protocol"),
+        "system_prompt": system_prompt(name),
+        "tools": tool_details(name),
+    }
+
+
+def build_agents() -> list[dict]:
+    """All known agents as catalog entries (sorted by name)."""
+    return [agent_catalog_entry(name) for name in available()]
+
+
+def native_provider_agents() -> dict[str, list[str]]:
+    """Map a native catalog provider key -> the agent name(s) that target it."""
+    out: dict[str, list[str]] = {}
+    for name in available():
+        provider = get(name).get("provider")
+        if provider:
+            out.setdefault(provider, []).append(name)
+    return out
 
 
 def tool_details(agent: str) -> dict[str, dict]:

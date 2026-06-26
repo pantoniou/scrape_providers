@@ -42,6 +42,30 @@ class Model(BaseModel):
     open_source: bool = False
     pricing: Pricing | None = None
     arena: ArenaScore | None = None
+    # Canonical agent harness(es) that natively drive this model (gpt -> codex,
+    # claude -> claude_code). Computed in emit from the model's vendor, not by
+    # scrapers; see agent_profiles / emit.build_catalog.
+    agents: list[str] = Field(default_factory=list)
+
+
+class Agent(BaseModel):
+    """A coding-agent harness, fully described for the catalog.
+
+    Harness-level and model-agnostic: any function-calling model can be driven
+    by it. The data is curated (`agent_profiles.py`) plus vendored captures
+    (system prompt + tool schemas), not scraped from a provider.
+    """
+
+    name: str
+    # The company/project that builds the agent (OpenAI, Anthropic, sst).
+    developer: str | None = None
+    # The catalog provider key the agent natively targets (openai, anthropic);
+    # None for model-agnostic harnesses (opencode).
+    native_provider: str | None = None
+    protocol: str | None = None
+    system_prompt: str | None = None
+    # tool name -> {description?, schema}
+    tools: dict[str, dict] = Field(default_factory=dict)
 
 
 class Endpoint(BaseModel):
