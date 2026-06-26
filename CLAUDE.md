@@ -75,7 +75,11 @@ output formatting, so a change in one layer doesn't ripple into the others.
   they're vendored: drop a captured `tools` payload into `agent_schemas/<agent>.json`
   (capture via a proxy like ccglass/mitmproxy; see that dir's README), and
   `load_schemas`/`index_tools` normalize Anthropic/OpenAI shapes. CLI:
-  `--agent-tool-schema AGENT[/TOOL]`.
+  `--agent-tool-schema AGENT[/TOOL]`. The same capture also saves each agent's
+  **system prompt** to `agent_prompts/<agent>.txt` (the addon's
+  `extract_system_prompt` pulls it from the Anthropic `system` field, the OpenAI
+  Responses `instructions` field, or leading `system`/`developer` turns);
+  `system_prompt()`/`has_system_prompt()` read it. CLI: `--agent-system-prompt AGENT`.
 - `curation.py` — the `--curated` allowlist: `DEFAULT_CURATED` built-ins plus an
   optional override config (`load_curated`/`save_curated`) at
   `$SCRAPE_PROVIDERS_CURATED` or `$XDG_CONFIG_HOME/scrape-providers/curated.yaml`.

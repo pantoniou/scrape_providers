@@ -25,11 +25,13 @@ run_capture() {
   # (Codex) need a CLI config override instead — those leave it unset and pass
   # the proxy URL ($CAPTURE_PROXY_URL, exported below) in their own args.
 
-  local here repo_root addon out port
+  local here repo_root addon out prompt_out port
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   repo_root="$(cd "$here/../.." && pwd)"
   addon="$here/capture_tools.py"
   out="$repo_root/src/scrape_providers/agent_schemas/${agent}.json"
+  prompt_out="$repo_root/src/scrape_providers/agent_prompts/${agent}.txt"
+  mkdir -p "$(dirname "$prompt_out")"
   port="${MITM_PORT:-8080}"
 
   command -v mitmdump >/dev/null 2>&1 || {
@@ -38,7 +40,7 @@ run_capture() {
   }
 
   echo "reverse-proxying $CAPTURE_UPSTREAM on :$port  (capturing -> $out)" >&2
-  CAPTURE_OUT="$out" mitmdump -q -s "$addon" \
+  CAPTURE_OUT="$out" CAPTURE_PROMPT_OUT="$prompt_out" mitmdump -q -s "$addon" \
     --mode "reverse:${CAPTURE_UPSTREAM}" --listen-port "$port" &
   MITM_PID=$!
   trap '_capture_cleanup' EXIT INT TERM
@@ -65,4 +67,5 @@ run_capture() {
   else
     echo "no tools captured (run again with CAPTURE_DEBUG=1 to see traffic)" >&2
   fi
+  [ -f "$prompt_out" ] && echo "captured system prompt -> $prompt_out" >&2
 }

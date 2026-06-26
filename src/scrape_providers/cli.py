@@ -133,6 +133,26 @@ def _list_agent_tools(agent: str) -> int:
     return 0
 
 
+def _agent_system_prompt(agent: str) -> int:
+    """Print an agent's vendored system prompt."""
+    try:
+        agent_profiles.get(agent)  # validate the agent name
+    except KeyError as exc:
+        print(exc.args[0], file=sys.stderr)
+        return 1
+    prompt = agent_profiles.system_prompt(agent)
+    if prompt is None:
+        print(
+            f"no vendored system prompt for {agent!r}; capture one with "
+            f"scripts/capture/capture-{agent.replace('_', '-')}.sh "
+            "(see agent_schemas/README.md)",
+            file=sys.stderr,
+        )
+        return 1
+    sys.stdout.write(prompt if prompt.endswith("\n") else prompt + "\n")
+    return 0
+
+
 def _list_provider_models(name: str, *, curated: bool) -> int:
     """Scrape a single provider and print its model ids, one per line."""
     try:
@@ -246,6 +266,12 @@ def main(argv: list[str] | None = None) -> int:
         "See agent_schemas/README.md for how to capture them.",
     )
     parser.add_argument(
+        "--agent-system-prompt",
+        metavar="AGENT",
+        help="Print an agent harness's vendored system prompt (captured alongside "
+        "its tools). See agent_schemas/README.md for how to capture.",
+    )
+    parser.add_argument(
         "--show",
         metavar="PROVIDER/MODEL",
         help="Output a single model in the chosen format. Split on the first '/', "
@@ -283,6 +309,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.agent_tool_schema:
         return _agent_tool_schema(args.agent_tool_schema)
+
+    if args.agent_system_prompt:
+        return _agent_system_prompt(args.agent_system_prompt)
 
     show_model: str | None = None
     if args.show:

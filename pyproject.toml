@@ -29,7 +29,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-scrape_providers = ["catalog.schema.json", "agent_schemas/*.json"]
+scrape_providers = ["catalog.schema.json", "agent_schemas/*.json", "agent_prompts/*.txt"]
 
 [tool.ruff]
 line-length = 100
@@ -37,3 +37,4 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # import the capture addon (scripts/) in tests

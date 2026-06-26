@@ -36,6 +36,9 @@ scrape-providers --list-agent-tools codex    # one harness
 scrape-providers --agent-tool-schema codex         # all of codex's tool schemas
 scrape-providers --agent-tool-schema codex/shell   # one tool's schema
 
+# Vendored system prompts (captured alongside the tools)
+scrape-providers --agent-system-prompt claude_code
+
 # Output just one provider's single model as PROVIDER/MODEL (split on first '/',
 # so the model id may itself contain slashes)
 scrape-providers --show deepseek/deepseek-v4-pro
@@ -73,12 +76,14 @@ scripts/capture/capture-opencode.sh      # -> .../opencode.json
 ```
 
 Each starts a local [mitmproxy](https://mitmproxy.org) (`pipx install mitmproxy`),
-launches the agent through it, and writes the captured `tools` array. Do one
-trivial turn, then quit the agent. Read the schemas back with:
+launches the agent through it, and writes the captured `tools` array — plus the
+request's **system prompt** to `src/scrape_providers/agent_prompts/<agent>.txt`.
+Do one trivial turn, then quit the agent. Read them back with:
 
 ```bash
 scrape-providers --agent-tool-schema codex                 # all tools (description + schema)
 scrape-providers --agent-tool-schema codex/exec_command    # one tool
+scrape-providers --agent-system-prompt codex               # the captured system prompt
 ```
 
 See `scripts/capture/README.md` for details (custom commands, ports, redaction).

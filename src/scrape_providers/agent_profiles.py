@@ -118,6 +118,22 @@ def has_capture(agent: str) -> bool:
     return bool(load_schemas(agent))
 
 
+def system_prompt(agent: str) -> str | None:
+    """Return the vendored system prompt for an agent, or None if not captured.
+
+    Prompts live in ``agent_prompts/<agent>.txt`` (captured alongside the tools;
+    see ``agent_schemas/README.md``).
+    """
+    path = files("scrape_providers").joinpath("agent_prompts", f"{agent}.txt")
+    if not path.is_file():
+        return None
+    return path.read_text("utf-8")
+
+
+def has_system_prompt(agent: str) -> bool:
+    return system_prompt(agent) is not None
+
+
 def _load_raw(agent: str) -> object | None:
     """Load the raw vendored capture for an agent, or None if there's no file."""
     path = files("scrape_providers").joinpath("agent_schemas", f"{agent}.json")

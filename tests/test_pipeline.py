@@ -450,6 +450,42 @@ def test_tool_descriptions_from_capture():
     assert descs.get("web_search", "") == ""  # built-in: no description
 
 
+def test_extract_system_prompt_shapes():
+    from scripts.capture.capture_tools import extract_system_prompt
+
+    # Anthropic: system as text blocks
+    assert extract_system_prompt(
+        {"system": [{"type": "text", "text": "You are Claude."}], "messages": []}
+    ) == "You are Claude."
+    # OpenAI Responses: instructions string
+    assert extract_system_prompt({"instructions": "Be helpful.", "input": []}) == "Be helpful."
+    # Chat completions: leading system turn, stops at first user turn
+    assert extract_system_prompt(
+        {
+            "messages": [
+                {"role": "system", "content": "Rules."},
+                {"role": "user", "content": "ignore me"},
+            ]
+        }
+    ) == "Rules."
+
+
+def test_cli_agent_system_prompt(capsys, monkeypatch, tmp_path):
+    from scrape_providers import agent_profiles
+
+    # no vendored prompt -> helpful error, exit 1
+    monkeypatch.setattr(agent_profiles, "system_prompt", lambda agent: None)
+    assert main(["--agent-system-prompt", "codex"]) == 1
+    assert "no vendored system prompt" in capsys.readouterr().err
+    # unknown agent -> error
+    assert main(["--agent-system-prompt", "nope"]) == 1
+    assert "unknown agent" in capsys.readouterr().err
+    # present -> printed
+    monkeypatch.setattr(agent_profiles, "system_prompt", lambda agent: "You are Codex.")
+    assert main(["--agent-system-prompt", "codex"]) == 0
+    assert "You are Codex." in capsys.readouterr().out
+
+
 def test_cli_list_agents(capsys):
     assert main(["--list-agents"]) == 0
     out = capsys.readouterr().out
