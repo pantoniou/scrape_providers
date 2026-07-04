@@ -30,7 +30,7 @@ from .models import Provider
 DEFAULT_CURATED: dict[str, list[str]] = {
     "anthropic": [
         "claude-opus-4-8",
-        "claude-sonnet-4-6",
+        "claude-sonnet-5",
         "claude-haiku-4-5-20251001",
         "claude-fable-5",
     ],
