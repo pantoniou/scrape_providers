@@ -149,10 +149,13 @@ def _parse_pricing_table(html: str) -> dict[str, Pricing]:
             if not fields:
                 continue
             extra = {k: v for k, v in fields.items() if k not in ("input", "output")}
-            result[_norm(name)] = Pricing(
-                input=fields.get("input"),
-                output=fields.get("output"),
-                extra=extra,
+            result.setdefault(
+                _norm(name),
+                Pricing(
+                    input=fields.get("input"),
+                    output=fields.get("output"),
+                    extra=extra,
+                ),
             )
         if result:
             return result
@@ -193,4 +196,5 @@ def _norm(name: str | None) -> str:
     if not name:
         return ""
     name = re.sub(r"\(.*?\)", "", name)
+    name = re.sub(r"\s*(?:through|starting)\s+.*", "", name, flags=re.I)
     return " ".join(name.split()).lower()

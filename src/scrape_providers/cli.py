@@ -339,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         except KeyError as exc:
             print(exc.args[0], file=sys.stderr)
             return 1
+        print(f"scraping {name}...", file=sys.stderr)
         with scraper_cls() as scraper:
             provider = scraper.scrape()
         if args.curated:
@@ -352,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
         results.append(provider)
 
     if args.arena:
+        print("scraping lmarena...", file=sys.stderr)
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             arena_mod.annotate(results, arena_mod.fetch_scores(client))
 

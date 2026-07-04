@@ -367,6 +367,32 @@ def test_anthropic_pricing_retries_until_plausible(monkeypatch):
     assert len(pricing) >= anthropic.MIN_PRICED_MODELS
 
 
+def test_anthropic_pricing_normalizes_sonnet_intro_row():
+    html = """
+    <table>
+      <tr>
+        <th>Model</th><th>Base Input Tokens</th><th>5m Cache Writes</th>
+        <th>1h Cache Writes</th><th>Cache Hits & Refreshes</th><th>Output Tokens</th>
+      </tr>
+      <tr>
+        <td>Claude Sonnet 5 through August 31, 2026</td><td>$2 / MTok</td>
+        <td>$2.50 / MTok</td><td>$4 / MTok</td><td>$0.20 / MTok</td>
+        <td>$10 / MTok</td>
+      </tr>
+      <tr>
+        <td>Claude Sonnet 5 starting September 1, 2026</td><td>$3 / MTok</td>
+        <td>$3.75 / MTok</td><td>$6 / MTok</td><td>$0.30 / MTok</td>
+        <td>$15 / MTok</td>
+      </tr>
+    </table>
+    """
+    pricing = _parse_pricing_table(html)
+    sonnet = pricing[_norm("Claude Sonnet 5")]
+    assert sonnet.input == 2.0
+    assert sonnet.output == 10.0
+    assert sonnet.extra["cache_read"] == 0.2
+
+
 def test_arena_parse_overall_block_and_join():
     from scrape_providers import arena
     from scrape_providers.models import Model, Provider
