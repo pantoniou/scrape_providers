@@ -44,6 +44,14 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": ["web_search"],
         "local": ["function_calling"],
     },
+    ("google", "generate_content"): {
+        "hosted": ["web_search", "code_execution"],
+        "local": ["function_calling"],
+    },
+    ("google", "chat_completions"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
 }
 
 

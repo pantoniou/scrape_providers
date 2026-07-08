@@ -44,6 +44,11 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "deepseek-v4-pro",
         "deepseek-v4-flash",
     ],
+    "google": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+    ],
     # Latest open-weight flagships routed via OpenRouter (truly open weights —
     # Qwen's -max / Mistral's -large tiers are closed, so the open variants are
     # picked instead).

@@ -108,6 +108,7 @@ ruff format .   # format
 | `openrouter` | public `/api/v1/models` | no key needed; full catalog with pricing |
 | `openai` | OpenRouter (`openai/*`) + native pricing page | characteristics via OpenRouter; pricing scraped from OpenAI's docs, OpenRouter as fallback |
 | `deepseek` | native `/models` API + native pricing page | requires `DEEPSEEK_API_KEY`; cache-hit/miss pricing for all served models |
+| `google` | OpenRouter (`google/*`) + native pricing page | characteristics via OpenRouter; pricing scraped from Google's docs (joined by a slug of the page's per-model heading), OpenRouter as fallback |
 
 API keys are read from the environment. A convenient pattern:
 
@@ -131,9 +132,11 @@ The YAML catalog has three top-level sections:
   default; `--no-agents` omits this section *and* the per-model `agents` tags.
 - `providers` — each provider has a `root_url` (API host root), an `endpoints`
   list of `{protocol, endpoint, tools}` entries (a provider may expose its models
-  over several protocols — `chat_completions`, `responses`, `messages` — e.g.
-  OpenAI via chat completions *and* responses, DeepSeek via chat completions *and*
-  an Anthropic-format messages endpoint; each endpoint splits its built-in tools
+  over several protocols — `chat_completions`, `responses`, `messages`,
+  `generate_content` — e.g. OpenAI via chat completions *and* responses,
+  DeepSeek via chat completions *and* an Anthropic-format messages endpoint,
+  Google via its native `generateContent` API *and* an OpenAI-compatible chat
+  completions endpoint; each endpoint splits its built-in tools
   into `hosted_tools` (run on the provider, e.g. `web_search`, `code_interpreter`)
   and `local_tools` (the caller executes, e.g. `local_shell`, `computer_use`)),
   and the models it serves. Each offering has

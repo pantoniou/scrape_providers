@@ -126,6 +126,19 @@ on OpenRouter's spotty per-host cache figures. Note this exposes only the models
 DeepSeek itself serves (currently 2), not the third-party-hosted `deepseek/*`
 variants on OpenRouter.
 
+`google` follows the `openai` pattern (no key needed): OpenRouter's `google/*`
+entries give the served ids and characteristics, and pricing is scraped
+natively from `ai.google.dev/gemini-api/docs/pricing`. That page has no
+per-row model id — each model is an `<h2>` heading followed by one or more
+pricing tables (Standard/Batch/Flex/Priority tiers under their own `<h3>`) — so
+`parse_gemini_pricing` walks the document in order and joins on a slug derived
+from the heading text (stripping parenthetical nicknames like "(Nano Banana
+2)" and emoji), matched against the OpenRouter id. Only the Standard/untiered
+table is used; Batch/Flex/Priority are discounted/premium variants of the same
+figures. Google exposes two real surfaces — the native `generateContent` REST
+API and an OpenAI-compatible `chat/completions` endpoint — both listed under
+`endpoints`; `generate_content` was added to the protocol enum for the former.
+
 Arena annotation (`arena.py`) is on by default (`--no-arena` skips the fetch) and
 adds LMArena Elo/rank to each model. The
 leaderboard has no public JSON API, so the data is extracted from escaped JSON in
