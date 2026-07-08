@@ -5,12 +5,14 @@ from __future__ import annotations
 from .base import Scraper
 from .providers.anthropic import AnthropicScraper
 from .providers.deepseek import DeepSeekScraper
+from .providers.google import GoogleScraper
 from .providers.openai import OpenAIScraper
 from .providers.openrouter import OpenRouterScraper
 
 _SCRAPERS: dict[str, type[Scraper]] = {
     AnthropicScraper.name: AnthropicScraper,
     DeepSeekScraper.name: DeepSeekScraper,
+    GoogleScraper.name: GoogleScraper,
     OpenAIScraper.name: OpenAIScraper,
     OpenRouterScraper.name: OpenRouterScraper,
 }

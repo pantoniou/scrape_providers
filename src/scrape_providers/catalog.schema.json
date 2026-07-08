@@ -100,7 +100,7 @@
       "properties": {
         "protocol": {
           "type": "string",
-          "enum": ["chat_completions", "responses", "messages"]
+          "enum": ["chat_completions", "responses", "messages", "generate_content"]
         },
         "endpoint": { "type": "string" },
         "hosted_tools": { "type": "array", "items": { "type": "string" } },

@@ -140,7 +140,7 @@ def test_endpoint_tools_split_hosted_local():
 
 
 def test_registry_lists_all_providers():
-    assert set(registry.available()) >= {"anthropic", "deepseek", "openai", "openrouter"}
+    assert set(registry.available()) >= {"anthropic", "deepseek", "google", "openai", "openrouter"}
 
 
 def test_openrouter_negative_price_sentinel_dropped():
@@ -211,6 +211,87 @@ def test_parse_openai_pricing_two_tier_and_modality():
     assert "Text" not in pricing
     # fine-tuning ("Training") table is skipped entirely
     assert "o4-mini" not in pricing
+
+
+def test_parse_gemini_pricing_headline_tier_and_slugify():
+    from scrape_providers.providers.google import parse_gemini_pricing
+
+    html = """
+    <h2>Gemini 3.1 Flash Image (Nano Banana 2) \U0001f34c</h2>
+    <h3>Standard</h3>
+    <table>
+      <tr><th></th><th>Free Tier</th><th>Paid Tier, per 1M tokens in USD</th></tr>
+      <tr><td>Input price</td><td>Not available</td><td>$0.50</td></tr>
+      <tr><td>Output price (including thinking tokens)</td><td>Not available</td><td>$3.00</td></tr>
+      <tr><td>Context caching price</td><td>Not available</td><td>$0.05</td></tr>
+    </table>
+    <h3>Batch</h3>
+    <table>
+      <tr><th></th><th>Free Tier</th><th>Paid Tier, per 1M tokens in USD</th></tr>
+      <tr><td>Input price</td><td>Not available</td><td>$0.25</td></tr>
+      <tr><td>Output price (including thinking tokens)</td><td>Not available</td><td>$1.50</td></tr>
+    </table>
+    <h2>Gemma 4</h2>
+    <table>
+      <tr><th></th><th>Free Tier</th><th>Paid Tier, per 1M tokens in USD</th></tr>
+      <tr><td>Input price</td><td>Free of charge</td><td>Not available</td></tr>
+      <tr><td>Output price</td><td>Free of charge</td><td>Not available</td></tr>
+    </table>
+    """
+    pricing = parse_gemini_pricing(html)
+    # heading's parenthetical nickname + emoji dropped; slug matches the OpenRouter id
+    assert "gemini-3.1-flash-image" in pricing
+    opus = pricing["gemini-3.1-flash-image"]
+    # the Standard tier is the headline; Batch's discounted rate is ignored
+    assert opus.input == 0.50
+    assert opus.output == 3.00
+    assert opus.extra["cache_read"] == 0.05
+    # a model with no priced tier ("Not available" everywhere) emits nothing
+    assert "gemma-4" not in pricing
+
+
+def test_parse_gemini_pricing_skips_per_image_models():
+    from scrape_providers.providers.google import parse_gemini_pricing
+
+    html = """
+    <h2>Gemini 2.5 Flash Image (Nano Banana) \U0001f34c</h2>
+    <h3>Standard</h3>
+    <table>
+      <tr><th></th><th>Free Tier</th><th>Paid Tier, per 1M tokens in USD</th></tr>
+      <tr><td>Input price</td><td>Not available</td><td>$0.30 (text / image)</td></tr>
+      <tr><td>Output price</td><td>Not available</td><td>$0.039 per image*</td></tr>
+    </table>
+    """
+    # the output is priced per image, not per token: the whole model is skipped
+    # so the scraper falls back to OpenRouter's per-token rate (a partial
+    # override would clobber the fallback's output figure)
+    assert parse_gemini_pricing(html) == {}
+
+
+def test_google_filters_openrouter_prefix_and_overrides_pricing(monkeypatch):
+    from scrape_providers.providers import google
+
+    raw_models = [
+        {
+            "id": "google/gemini-3.5-flash",
+            "name": "Google: Gemini 3.5 Flash",
+            "context_length": 1048576,
+            "architecture": {"input_modalities": ["text", "image"]},
+            "top_provider": {"max_completion_tokens": 65536},
+            "supported_parameters": ["tools"],
+            "pricing": {"prompt": "0.0000015", "completion": "0.000009"},
+        },
+        {"id": "openai/gpt-5.5", "pricing": {}},  # non-google: must be filtered out
+    ]
+    monkeypatch.setattr(google.openrouter, "fetch_models", lambda client: raw_models)
+    scraper = google.GoogleScraper(client=object())
+    scraper._fetch_native_pricing = lambda: {"gemini-3.5-flash": Pricing(input=1.0, output=5.0)}
+    provider = scraper.scrape()
+    assert [m.id for m in provider.models] == ["gemini-3.5-flash"]
+    # native pricing override wins over OpenRouter's routed rate
+    assert provider.models[0].pricing.input == 1.0
+    assert provider.models[0].pricing.output == 5.0
+    assert [e.protocol for e in provider.endpoints] == ["generate_content", "chat_completions"]
 
 
 def test_curate_filters_and_orders():
