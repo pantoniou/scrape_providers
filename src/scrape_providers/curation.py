@@ -64,6 +64,12 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         # the newer mistral-small-2603 (Apr 2025 vs Mar 2026).
         "mistralai/mistral-small-2603",
         "moonshotai/kimi-k2.7-code",
+        "tencent/hy3",
+        "tencent/hy3:free",
+        "xiaomi/mimo-v2.5",
+        "minimax/minimax-m3",
+        "nvidia/nemotron-3-ultra-550b-a55b",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
     ],
 }
 
