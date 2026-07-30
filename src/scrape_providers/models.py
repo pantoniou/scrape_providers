@@ -68,6 +68,31 @@ class Agent(BaseModel):
     tools: dict[str, dict] = Field(default_factory=dict)
 
 
+class EndpointCapabilities(BaseModel):
+    """Behavioral capabilities of one provider API surface.
+
+    These describe the provider/protocol contract, not an individual model.
+    ``None`` means unknown or model-dependent and is pruned from catalog output;
+    explicit ``False`` means the surface is known not to provide the behavior.
+    """
+
+    streaming_supported: bool | None = None
+    function_calling_supported: bool | None = None
+    parallel_tool_calls_supported: bool | None = None
+    tool_choice_supported: bool | None = None
+    strict_json_schema_supported: bool | None = None
+    shell_tool_supported: bool | None = None
+    mcp_supported: bool | None = None
+    server_side_conversation_state_supported: bool | None = None
+    previous_response_id_supported: bool | None = None
+    response_lifecycle_supported: bool | None = None
+    system_prompt_supported: bool | None = None
+    developer_role_supported: bool | None = None
+    explicit_prompt_caching_supported: bool | None = None
+    automatic_prompt_caching_supported: bool | None = None
+    reasoning_controls_supported: bool | None = None
+
+
 class Endpoint(BaseModel):
     """One API surface a provider exposes: a wire protocol and its request path.
 
@@ -82,6 +107,8 @@ class Endpoint(BaseModel):
     # hosted = run on the provider; local = the caller executes (bash, etc.).
     hosted_tools: list[str] = Field(default_factory=list)
     local_tools: list[str] = Field(default_factory=list)
+    # Provider/protocol behavior, separate from intrinsic model capabilities.
+    capabilities: EndpointCapabilities = Field(default_factory=EndpointCapabilities)
 
 
 class Provider(BaseModel):

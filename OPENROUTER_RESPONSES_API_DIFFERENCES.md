@@ -23,6 +23,25 @@ tools:
 
 It deliberately does not record `local_shell`.
 
+The catalog also records the behavioral distinction explicitly on each
+Responses endpoint:
+
+```yaml
+# OpenAI
+capabilities:
+  shell_tool_supported: true
+  server_side_conversation_state_supported: true
+  previous_response_id_supported: true
+  response_lifecycle_supported: true
+
+# OpenRouter
+capabilities:
+  shell_tool_supported: false
+  server_side_conversation_state_supported: false
+  previous_response_id_supported: false
+  response_lifecycle_supported: false
+```
+
 ## Compatibility at a glance
 
 | Area | OpenAI | OpenRouter | Porting consequence |

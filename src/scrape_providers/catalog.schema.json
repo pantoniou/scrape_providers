@@ -104,7 +104,30 @@
         },
         "endpoint": { "type": "string" },
         "hosted_tools": { "type": "array", "items": { "type": "string" } },
-        "local_tools": { "type": "array", "items": { "type": "string" } }
+        "local_tools": { "type": "array", "items": { "type": "string" } },
+        "capabilities": { "$ref": "#/$defs/endpointCapabilities" }
+      }
+    },
+    "endpointCapabilities": {
+      "description": "Provider/protocol behavior, separate from intrinsic model capabilities. Omitted properties are unknown or model-dependent.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "streaming_supported": { "type": "boolean" },
+        "function_calling_supported": { "type": "boolean" },
+        "parallel_tool_calls_supported": { "type": "boolean" },
+        "tool_choice_supported": { "type": "boolean" },
+        "strict_json_schema_supported": { "type": "boolean" },
+        "shell_tool_supported": { "type": "boolean" },
+        "mcp_supported": { "type": "boolean" },
+        "server_side_conversation_state_supported": { "type": "boolean" },
+        "previous_response_id_supported": { "type": "boolean" },
+        "response_lifecycle_supported": { "type": "boolean" },
+        "system_prompt_supported": { "type": "boolean" },
+        "developer_role_supported": { "type": "boolean" },
+        "explicit_prompt_caching_supported": { "type": "boolean" },
+        "automatic_prompt_caching_supported": { "type": "boolean" },
+        "reasoning_controls_supported": { "type": "boolean" }
       }
     },
     "offering": {

@@ -139,6 +139,43 @@ def test_endpoint_tools_split_hosted_local():
     assert "local_shell" not in endpoint["hosted_tools"]
 
 
+def test_endpoint_capabilities_are_provider_protocol_behavior():
+    from scrape_providers.emit import build_catalog
+    from scrape_providers.tools import endpoint_for
+
+    provider = Provider(
+        name="comparison",
+        endpoints=[
+            endpoint_for("openai", "responses", "/v1/responses"),
+            endpoint_for("openrouter", "responses", "/api/v1/responses"),
+        ],
+        models=[Model(id="gpt-5.5")],
+    )
+    endpoints = build_catalog([provider])["providers"][0]["endpoints"]
+    openai = endpoints[0]["capabilities"]
+    openrouter = endpoints[1]["capabilities"]
+
+    # The model can be the same while the provider wire behavior differs.
+    assert openai["shell_tool_supported"] is True
+    assert openrouter["shell_tool_supported"] is False
+    assert openai["server_side_conversation_state_supported"] is True
+    assert openrouter["server_side_conversation_state_supported"] is False
+    assert openai["previous_response_id_supported"] is True
+    assert openrouter["previous_response_id_supported"] is False
+    assert openrouter["mcp_supported"] is True
+
+
+def test_unknown_endpoint_capabilities_are_pruned():
+    provider = Provider(
+        name="demo",
+        endpoints=[Endpoint(protocol="chat_completions", endpoint="/x")],
+        models=[Model(id="m1")],
+    )
+    parsed = yaml.safe_load(to_yaml([provider]))
+    endpoint = parsed["providers"][0]["endpoints"][0]
+    assert "capabilities" not in endpoint
+
+
 def test_registry_lists_all_providers():
     assert set(registry.available()) >= {"anthropic", "deepseek", "google", "openai", "openrouter"}
 
@@ -453,14 +490,15 @@ def test_catalog_validates_against_schema():
     import jsonschema
 
     from scrape_providers.emit import pruned_catalog
-    from scrape_providers.models import ArenaScore, Endpoint, Model, Pricing, Provider
+    from scrape_providers.models import ArenaScore, Model, Pricing, Provider
     from scrape_providers.schema import validate_catalog
+    from scrape_providers.tools import endpoint_for
 
     providers = [
         Provider(
             name="anthropic",
             root_url="https://api.anthropic.com",
-            endpoints=[Endpoint(protocol="messages", endpoint="/v1/messages")],
+            endpoints=[endpoint_for("anthropic", "messages", "/v1/messages")],
             models=[
                 Model(
                     id="claude-opus-4-8",
@@ -478,12 +516,19 @@ def test_catalog_validates_against_schema():
     catalog = pruned_catalog(providers)
     validate_catalog(catalog)  # valid (incl. the agents section): should not raise
     assert catalog["agents"]  # agents section is emitted and schema-valid
+    assert catalog["providers"][0]["endpoints"][0]["capabilities"]["shell_tool_supported"]
 
     # an unknown protocol must fail validation
     bad = pruned_catalog(providers)
     bad["providers"][0]["endpoints"][0]["protocol"] = "grpc"
     with pytest.raises(jsonschema.ValidationError):
         validate_catalog(bad)
+
+    # behavioral capability names are a strict, queryable vocabulary
+    bad_capability = pruned_catalog(providers)
+    bad_capability["providers"][0]["endpoints"][0]["capabilities"]["telepathy"] = True
+    with pytest.raises(jsonschema.ValidationError):
+        validate_catalog(bad_capability)
 
     # a stray key in an agent entry must fail (additionalProperties: false)
     bad_agent = pruned_catalog(providers)

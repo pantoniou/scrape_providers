@@ -66,13 +66,15 @@ output formatting, so a change in one layer doesn't ripple into the others.
 - `canonical.py` — `canonical_id` maps a provider-specific model id to a shared
   key (drops vendor prefix + lowercases; `ALIASES` overrides), so the same model
   served by multiple providers collapses into one `models` entry.
-- `tools.py` — curated map of built-in tools per `(provider, protocol)`, split
-  into `hosted` (run on the provider: web_search, code_interpreter, …) and `local`
-  (the caller executes: `local_shell`/bash, computer_use, function_calling, …). No
-  provider API enumerates these, so they're hand-maintained and attached to the
-  provider's endpoints (the same model exposes different tools under different
-  protocols). Scrapers build each surface via `endpoint_for(provider, protocol,
-  path)`, which populates `Endpoint.hosted_tools` / `local_tools`.
+- `tools.py` — curated map of built-in tools and behavioral capabilities per
+  `(provider, protocol)`, with tools split into `hosted` (run on the provider:
+  web_search, code_interpreter, …) and `local` (the caller executes:
+  `local_shell`/bash, computer_use, function_calling, …). No provider API
+  enumerates all of these, so they're hand-maintained and attached to the
+  provider's endpoints (the same model exposes different behavior and tools
+  under different protocols). Scrapers build each surface via
+  `endpoint_for(provider, protocol, path)`, which populates
+  `Endpoint.hosted_tools`, `local_tools`, and `capabilities`.
 - `agent_profiles.py` — curated tool/function sets of well-known agent harnesses
   (Codex: shell/apply_patch/update_plan; Claude Code: Bash/Read/Edit/…). These are
   harness-level and model-agnostic (any function-calling model can be driven by

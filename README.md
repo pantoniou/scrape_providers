@@ -131,14 +131,18 @@ The YAML catalog has three top-level sections:
   vendored `system_prompt`, and the vendored `tools` (tool name → schema). On by
   default; `--no-agents` omits this section *and* the per-model `agents` tags.
 - `providers` — each provider has a `root_url` (API host root), an `endpoints`
-  list of `{protocol, endpoint, tools}` entries (a provider may expose its models
-  over several protocols — `chat_completions`, `responses`, `messages`,
+  list of `{protocol, endpoint, tools, capabilities}` entries (a provider may
+  expose its models over several protocols — `chat_completions`, `responses`, `messages`,
   `generate_content` — e.g. OpenAI via chat completions *and* responses,
   DeepSeek via chat completions *and* an Anthropic-format messages endpoint,
   Google via its native `generateContent` API *and* an OpenAI-compatible chat
   completions endpoint; each endpoint splits its built-in tools
   into `hosted_tools` (run on the provider, e.g. `web_search`, `code_interpreter`)
   and `local_tools` (the caller executes, e.g. `local_shell`, `computer_use`)),
+  while `capabilities` records provider/protocol behavior such as native shell
+  support, stateful continuation, response lifecycle operations, strict JSON
+  schemas, caching, reasoning controls, and message-role support. These endpoint
+  capabilities are distinct from the intrinsic capabilities under `models`,
   and the models it serves. Each offering has
   `canonical_id` (the key into `models`), `provider_model_id` (the id that provider
   uses), and `pricing`. A full request URL is `root_url + endpoints[i].endpoint`.
@@ -150,9 +154,9 @@ override table for ids the rule mishandles.
 
 ## Architecture
 
-- `src/scrape_providers/models.py` — normalized data model (provider, model,
-  pricing) that every scraper maps into. The YAML output serializes this model,
-  not raw provider responses.
+- `src/scrape_providers/models.py` — normalized data model (provider, endpoint
+  behavior, model, pricing) that every scraper maps into. The YAML output
+  serializes this model, not raw provider responses.
 - `src/scrape_providers/base.py` — the `Scraper` interface each provider
   implements.
 - `src/scrape_providers/providers/` — one module per provider; quirks (auth,
