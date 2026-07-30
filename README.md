@@ -161,3 +161,9 @@ override table for ids the rule mishandles.
 - `src/scrape_providers/emit.py` — deterministic YAML emission (stable key
   ordering so run-to-run diffs are meaningful).
 - `src/scrape_providers/cli.py` — command-line entry point.
+
+## Protocol notes
+
+- [OpenRouter vs OpenAI Responses API](OPENROUTER_RESPONSES_API_DIFFERENCES.md)
+  covers the compatibility boundary, especially native shell calls, function
+  tool fallback, stateless continuation, provider tools, and error handling.
