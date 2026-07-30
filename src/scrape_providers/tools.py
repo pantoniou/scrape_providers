@@ -44,6 +44,10 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": ["web_search"],
         "local": ["function_calling"],
     },
+    ("openrouter", "responses"): {
+        "hosted": ["web_search"],
+        "local": ["function_calling", "mcp"],
+    },
     ("google", "generate_content"): {
         "hosted": ["web_search", "code_execution"],
         "local": ["function_calling"],
