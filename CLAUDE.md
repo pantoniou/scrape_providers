@@ -131,8 +131,31 @@ output formatting, so a change in one layer doesn't ripple into the others.
   output and `validate_catalog`. CLI: `--validate` checks the built catalog,
   `--schema` prints the schema. The schema is strict (prices `minimum: 0`,
   protocol enum, `additionalProperties: false`) so it catches bad scraped data.
+  Every property carries a `description`; the schema is the reference for what a
+  field means, so keep them there rather than only in this file.
 - `cli.py` — argparse entry point (`--provider`, `--format`, `--output`,
-  `--list-providers`, `--show`, `--curated`, `--arena`, `--validate`).
+  `--list-providers`, `--show`, `--curated`, `--arena`, `--validate`,
+  `--select`).
+
+### Partial output (`--select PATH`)
+
+`--select` emits just the part of the catalog at a slash-separated path —
+`models`, `models/gpt-5.5`, `providers/openrouter/endpoints`, `agents/codex`,
+`agents/codex/system_prompt`. `emit.select_path` walks the pruned catalog:
+mappings are indexed by key, and **lists by their entries' `name`, never by
+position**, since the catalog's lists are named collections whose order is an
+emission detail. Empty segments are ignored, so `models` and `models/` are one
+path and `""` is the whole catalog. A failed segment raises `KeyError` naming
+where it failed and listing the alternatives.
+
+A leaf that isn't a dict or list prints verbatim (a system prompt stays a system
+prompt, not a quoted YAML scalar); everything else prints as YAML. `--select` is
+therefore incompatible with `-f markdown`, which renders whole catalogs only.
+
+The CLI also scrapes only what the path needs: `agents/…` is curated data and
+scrapes nothing at all, `providers/<name>/…` scrapes that one provider, and
+`models/…` still needs every provider because a model's entry is merged from all
+of them. An explicit `--provider` always wins over this narrowing.
 
 ### Provider sourcing (important)
 

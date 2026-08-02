@@ -1095,3 +1095,68 @@ def test_size_moniker_is_never_dropped_from_a_name():
         [Provider(name="openai", models=[Model(id="gpt-oss-20b"), Model(id="gpt-oss-120b")])]
     )
     assert [m["name"] for m in both["models"]] == ["gpt-oss-120b", "gpt-oss-20b"]
+
+
+def _select_fixture():
+    from scrape_providers.emit import pruned_catalog
+
+    return pruned_catalog(
+        [
+            Provider(
+                name="demo",
+                root_url="https://demo.test",
+                endpoints=[Endpoint(protocol="chat_completions", endpoint="/x")],
+                models=[Model(id="m1", display_name="M1", context_window=1000)],
+            )
+        ],
+        include_agents=True,
+    )
+
+
+def test_select_path_addresses_sections_and_named_entries():
+    from scrape_providers.emit import select_path
+
+    catalog = _select_fixture()
+    # the whole catalog, however the caller spells "no path"
+    assert select_path(catalog, "") == catalog
+    assert select_path(catalog, "/") == catalog
+    # a section, with and without a trailing slash
+    assert select_path(catalog, "models") == catalog["models"]
+    assert select_path(catalog, "models/") == catalog["models"]
+    # lists are indexed by entry name, not position
+    assert select_path(catalog, "models/m1")["display_name"] == "M1"
+    assert select_path(catalog, "providers/demo")["root_url"] == "https://demo.test"
+    # and descent continues into leaves of any type
+    assert select_path(catalog, "models/m1/context_window") == 1000
+    assert select_path(catalog, "agents/codex/protocol") == "responses"
+
+
+def test_select_path_reports_the_alternatives():
+    from scrape_providers.emit import select_path
+
+    catalog = _select_fixture()
+    with pytest.raises(KeyError) as exc:
+        select_path(catalog, "providers/nope")
+    # the message names where it failed and what was there instead
+    assert "no 'nope' under providers" in exc.value.args[0]
+    assert "demo" in exc.value.args[0]
+
+    with pytest.raises(KeyError) as exc:
+        select_path(catalog, "nope")
+    assert "<root>" in exc.value.args[0]
+    assert "models" in exc.value.args[0]
+
+
+def test_cli_select_needs_no_provider_for_agents(capsys, monkeypatch):
+    def fail(name):
+        raise AssertionError(f"scraped {name!r} for an agents-only selection")
+
+    monkeypatch.setattr(registry, "get", fail)
+    assert main(["--select", "agents/codex/protocol"]) == 0
+    # a leaf string prints verbatim, not as quoted YAML
+    assert capsys.readouterr().out == "responses\n"
+
+
+def test_cli_select_rejects_markdown(capsys):
+    assert main(["--select", "models", "-f", "markdown"]) == 1
+    assert "cannot render" in capsys.readouterr().err

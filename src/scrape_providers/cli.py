@@ -16,7 +16,7 @@ from . import registry
 from . import schema as schema_mod
 from . import curation
 from .curation import curate
-from .emit import pruned_catalog, to_markdown, to_yaml
+from .emit import pruned_catalog, select_path, to_markdown, to_yaml
 from .models import Provider
 
 
@@ -279,6 +279,15 @@ def main(argv: list[str] | None = None) -> int:
         "its tools). See agent_schemas/README.md for how to capture.",
     )
     parser.add_argument(
+        "--select",
+        metavar="PATH",
+        help="Emit only the part of the catalog at this slash-separated path, e.g. "
+        "'models', 'models/gpt-5.5', 'providers/openrouter', 'agents/codex', "
+        "'agents/codex/system_prompt'. Lists are addressed by entry name, not "
+        "position. Strings print verbatim; anything else prints as YAML. "
+        "Only the providers the path needs are scraped.",
+    )
+    parser.add_argument(
         "--show",
         metavar="PROVIDER/MODEL",
         help="Output a single model in the chosen format. Split on the first '/', "
@@ -320,6 +329,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.agent_system_prompt:
         return _agent_system_prompt(args.agent_system_prompt)
 
+    if args.select and args.format == "markdown":
+        print(
+            "--select emits a fragment of the catalog, which the Markdown view "
+            "cannot render; use the default --format yaml",
+            file=sys.stderr,
+        )
+        return 1
+
     show_model: str | None = None
     if args.show:
         if "/" not in args.show:
@@ -329,8 +346,20 @@ def main(argv: list[str] | None = None) -> int:
         # remainder is the model id, which may itself contain slashes.
         show_provider, show_model = args.show.split("/", 1)
         names = [show_provider]
+    elif args.providers:
+        names = args.providers
     else:
-        names = args.providers or registry.available()
+        # Scrape only what the selected path needs: `agents/...` is curated data
+        # that needs no provider at all, and `providers/<name>/...` needs one.
+        # `models/...` still needs every provider, since a model's entry is
+        # merged from all of them.
+        head = [s for s in (args.select or "").split("/") if s][:2]
+        if head[:1] == ["agents"]:
+            names = []
+        elif head[:1] == ["providers"] and len(head) == 2:
+            names = head[1:]
+        else:
+            names = registry.available()
 
     results: list[Provider] = []
     for name in names:
@@ -352,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
             provider = provider.model_copy(update={"models": kept})
         results.append(provider)
 
-    if args.arena:
+    if args.arena and results:
         print("scraping lmarena...", file=sys.stderr)
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             arena_mod.annotate(results, arena_mod.fetch_scores(client))
@@ -366,11 +395,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"catalog failed schema validation: {exc.message}", file=sys.stderr)
             return 1
 
-    output = (
-        to_markdown(results, include_agents=args.agents)
-        if args.format == "markdown"
-        else to_yaml(results, include_agents=args.agents)
-    )
+    if args.select is not None:
+        try:
+            selected = select_path(pruned_catalog(results, include_agents=args.agents), args.select)
+        except KeyError as exc:
+            print(exc.args[0], file=sys.stderr)
+            return 1
+        # A leaf (a system prompt, a url, a context window) is the payload
+        # itself; YAML-quoting it, line-wrapping it, or appending a document
+        # terminator would only get in the caller's way.
+        if isinstance(selected, (dict, list)):
+            output = yaml.safe_dump(
+                selected, sort_keys=False, allow_unicode=True, default_flow_style=False
+            )
+        else:
+            output = "" if selected is None else str(selected)
+        if not output.endswith("\n"):
+            output += "\n"
+    elif args.format == "markdown":
+        output = to_markdown(results, include_agents=args.agents)
+    else:
+        output = to_yaml(results, include_agents=args.agents)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(output)

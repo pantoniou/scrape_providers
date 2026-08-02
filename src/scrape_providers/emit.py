@@ -27,6 +27,55 @@ def _prune(value: Any) -> Any:
     return value
 
 
+def _keys_of(node: Any) -> list[str]:
+    """The addressable children of a node, for error messages."""
+    if isinstance(node, dict):
+        return [str(k) for k in node]
+    if isinstance(node, list):
+        return [str(item["name"]) for item in node if isinstance(item, dict) and "name" in item]
+    return []
+
+
+def _describe(names: list[str], limit: int = 12) -> str:
+    if not names:
+        return "nothing addressable"
+    shown = ", ".join(names[:limit])
+    return shown if len(names) <= limit else f"{shown}, … ({len(names)} total)"
+
+
+def select_path(catalog: Any, path: str) -> Any:
+    """Return the part of ``catalog`` addressed by a slash-separated ``path``.
+
+    Mappings are indexed by key. Lists are indexed by the ``name`` of their
+    entries, not by position — the catalog's lists are named collections
+    (``agents/codex``, ``providers/openrouter``), and their order is an emission
+    detail that must not become part of the address. Empty segments are ignored,
+    so ``models`` and ``models/`` are the same path and ``""`` is the whole
+    catalog.
+
+    A model's canonical id may itself contain a slash on no current provider,
+    but a provider model id can (``openai/gpt-5.5``), so paths address models by
+    canonical id only. Raises ``KeyError`` naming the alternatives when a
+    segment doesn't resolve.
+    """
+    node = catalog
+    walked: list[str] = []
+    for segment in [s for s in path.split("/") if s]:
+        if isinstance(node, dict) and segment in node:
+            node = node[segment]
+        elif isinstance(node, list) and (
+            hit := next(
+                (i for i in node if isinstance(i, dict) and str(i.get("name")) == segment), None
+            )
+        ):
+            node = hit
+        else:
+            where = "/".join(walked) or "<root>"
+            raise KeyError(f"no {segment!r} under {where}; have: {_describe(_keys_of(node))}")
+        walked.append(segment)
+    return node
+
+
 def _union(first: list[str], second: list[str]) -> list[str]:
     """Both lists, first-seen order preserved (deterministic given provider order)."""
     return list(dict.fromkeys([*first, *second]))
