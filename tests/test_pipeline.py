@@ -940,3 +940,33 @@ def test_capabilities_merge_across_providers_not_first_wins():
     assert entry["modalities"] == ["text", "image", "file"]  # union, first-seen order
     assert entry["capabilities"] == ["thinking", "tools"]
     assert entry["open_source"]  # true if any provider says so
+
+
+def test_vendor_naming_wins_over_resellers():
+    from scrape_providers.emit import build_catalog
+
+    # Scrape order puts the resellers first; the vendor's name must still win.
+    providers = [
+        Provider(name="opencode", models=[Model(id="gpt-oss-120b", display_name="gpt oss")]),
+        Provider(
+            name="openrouter",
+            models=[Model(id="openai/gpt-oss-120b", display_name="OpenAI: gpt-oss-120b")],
+        ),
+        Provider(
+            name="fireworks",
+            models=[
+                Model(
+                    id="accounts/fireworks/models/gpt-oss-120b",
+                    display_name="OpenAI gpt-oss-120b",
+                )
+            ],
+        ),
+        Provider(name="openai", models=[Model(id="gpt-oss-120b", display_name="gpt-oss-120b")]),
+    ]
+    entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "gpt-oss-120b")
+    assert entry["display_name"] == "gpt-oss-120b"  # first-party openai, not a reseller
+
+    # With no first-party provider serving it, the nearest reseller names it.
+    resellers = [p for p in providers if p.name in ("opencode", "openrouter")]
+    entry = next(m for m in build_catalog(resellers)["models"] if m["name"] == "gpt-oss-120b")
+    assert entry["display_name"] == "OpenAI: gpt-oss-120b"

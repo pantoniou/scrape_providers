@@ -58,8 +58,10 @@ output formatting, so a change in one layer doesn't ripple into the others.
   from `agent_profiles.build_agents()` — see below). When several providers serve
   the same canonical model their capability data is **merged, not first-wins**
   (`_merge_capabilities`): the widest context window / max output, the union of
-  modalities and capabilities, open_source if any provider says so, and the first
-  non-null display_name and arena. Gateways (OpenCode Zen, and Fireworks for its
+  modalities and capabilities, open_source if any provider says so. `display_name`
+  and `arena` hold a single value rather than a maximum, so the provider nearest
+  the model's vendor wins (`_RESELLER_RANK`: first-party providers serve only
+  models they built and rank first; then fireworks, openrouter, opencode). Gateways (OpenCode Zen, and Fireworks for its
   routers) publish far less than a model's own vendor, so taking whichever
   provider was scraped first would silently drop capabilities.
   A model is tagged with agent
