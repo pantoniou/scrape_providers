@@ -49,14 +49,37 @@
           "minimum": 1
         },
         "modalities": {
-          "description": "Input/output modalities the model handles (text, image, audio, pdf). Vocabularies differ per provider, so this is the vendor's wording where there is a vendor.",
+          "description": "Input modalities the model accepts, in the controlled vocabulary (see capabilities.py). Output is text for every catalogued model. Providers' own words — OpenRouter's `file` for what Anthropic calls `pdf` — are mapped here and preserved verbatim in each offering's `reported_modalities`.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "description": "A modality the model accepts as input.",
+            "type": "string",
+            "enum": ["text", "image", "audio", "video", "pdf"]
+          }
         },
         "capabilities": {
-          "description": "Model-level features (reasoning, tools, citations, caching). Distinct from `endpointCapabilities`, which describes a provider's API surface rather than a model.",
+          "description": "What the model can do, in the controlled vocabulary (see capabilities.py). Restricted to abilities that change what you can build: request knobs that tune an ability every model has (temperature, max_tokens, tool_choice) are excluded, as are properties of the route rather than the model. Distinct from `endpointCapabilities`, which describes a provider's API surface. Providers' own words are preserved verbatim in each offering's `reported_capabilities`.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "description": "tool_calling: caller-defined tools the model can invoke. parallel_tool_calls: several tool calls in one turn. structured_outputs: output constrained to a caller-supplied JSON schema. json_mode: valid JSON, without a schema guarantee. reasoning: produces a reasoning trace. reasoning_effort: that trace's depth is tunable. logprobs: returns token probabilities. predicted_outputs: a draft completion can be supplied to speed decoding. prefix_completion: continues a caller-supplied assistant prefix. web_search: model-side web search. code_execution: model-side code execution. citations: cites supplied documents. context_management: provider-side context editing/compaction. batch: asynchronous batch submission at reduced cost.",
+            "type": "string",
+            "enum": [
+              "tool_calling",
+              "parallel_tool_calls",
+              "structured_outputs",
+              "json_mode",
+              "reasoning",
+              "reasoning_effort",
+              "logprobs",
+              "predicted_outputs",
+              "prefix_completion",
+              "web_search",
+              "code_execution",
+              "citations",
+              "context_management",
+              "batch"
+            ]
+          }
         },
         "open_source": {
           "description": "True when some provider evidences open weights (e.g. a HuggingFace link on the model page). An OR across all providers including the vendor: a provider that never mentions weights leaves this at its False default, which is an absent claim rather than a claim of closedness.",

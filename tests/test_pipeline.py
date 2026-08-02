@@ -940,7 +940,9 @@ def test_vendor_is_authoritative_over_resellers():
     assert entry["context_window"] == 1_000_000
     assert entry["max_output_tokens"] == 128_000
     assert entry["modalities"] == ["text", "image"]  # no "file" from OpenRouter
-    assert entry["capabilities"] == ["thinking"]  # no "tools" from OpenRouter
+    # canonical vocabulary: Anthropic's "thinking" is `reasoning`, and
+    # OpenRouter's "tools" is absent rather than merged in
+    assert entry["capabilities"] == ["reasoning"]
     # ...but the resellers' claims stay visible on their own offerings
     zen, router, _ = (p["models"][0] for p in build_catalog(providers)["providers"])
     assert router["reported_capabilities"] == ["tools"]
@@ -982,7 +984,8 @@ def test_resellers_merge_when_no_vendor_serves_the_model():
     assert entry["context_window"] == 262_144  # widest
     assert entry["max_output_tokens"] == 64_000  # only one provider published it
     assert entry["modalities"] == ["text", "image"]
-    assert entry["capabilities"] == ["function_calling", "tools"]
+    # two providers' words for one ability collapse to a single canonical term
+    assert entry["capabilities"] == ["tool_calling"]
     assert entry["open_source"]
 
 
@@ -1058,7 +1061,7 @@ def test_offering_carries_what_that_provider_reported():
     entry = next(m for m in catalog["models"] if m["name"] == "claude-opus-4.8")
     anthropic, zen = (p["models"][0] for p in catalog["providers"])
 
-    assert entry["capabilities"] == ["citations", "thinking"]  # union
+    assert entry["capabilities"] == ["reasoning", "citations"]  # canonicalized
     assert anthropic["reported_capabilities"] == ["citations", "thinking"]
     assert anthropic["reported_modalities"] == ["text", "pdf"]
     # a gateway that publishes nothing reports nothing — pruned, not "unsupported"
@@ -1160,3 +1163,99 @@ def test_cli_select_needs_no_provider_for_agents(capsys, monkeypatch):
 def test_cli_select_rejects_markdown(capsys):
     assert main(["--select", "models", "-f", "markdown"]) == 1
     assert "cannot render" in capsys.readouterr().err
+
+
+def test_capability_vocabulary_collapses_provider_words():
+    from scrape_providers.capabilities import normalize_capabilities, normalize_modalities
+
+    # Four providers, four words, one ability.
+    for term in ("tools", "tool_calls", "function_calling"):
+        assert normalize_capabilities([term])[0] == ["tool_calling"]
+    # Anthropic's `thinking` and OpenRouter's `include_reasoning` are `reasoning`.
+    caps, unknown = normalize_capabilities(["thinking", "include_reasoning", "reasoning"])
+    assert caps == ["reasoning"] and unknown == []
+    # `top_logprobs` is meaningless without `logprobs`, so both are one ability.
+    assert normalize_capabilities(["top_logprobs"])[0] == ["logprobs"]
+    # A schema guarantee is strictly stronger than "valid JSON": kept apart.
+    assert normalize_capabilities(["structured_outputs", "response_format"])[0] == [
+        "structured_outputs",
+        "json_mode",
+    ]
+    # OpenRouter's document modality is Anthropic's pdf.
+    assert normalize_modalities(["file"])[0] == ["pdf"]
+    # Emission order is the declared one, not input order or alphabetical.
+    assert normalize_capabilities(["batch", "tools"])[0] == ["tool_calling", "batch"]
+
+
+def test_request_knobs_are_not_capabilities():
+    from scrape_providers.capabilities import normalize_capabilities
+
+    # Sampling/length knobs tune an ability every model has; `tool_choice`
+    # steers tool use that `tool_calling` already covers; `anthropic_api` is a
+    # wire protocol, recorded on the provider's endpoints instead.
+    knobs = [
+        "temperature",
+        "top_p",
+        "top_k",
+        "top_a",
+        "min_p",
+        "seed",
+        "stop",
+        "max_tokens",
+        "max_completion_tokens",
+        "logit_bias",
+        "frequency_penalty",
+        "presence_penalty",
+        "repetition_penalty",
+        "verbosity",
+        "tool_choice",
+        "anthropic_api",
+    ]
+    caps, unknown = normalize_capabilities(knobs)
+    # dropped deliberately: neither emitted nor reported as unclassified
+    assert caps == [] and unknown == []
+
+
+def test_unknown_terms_are_reported_not_silently_dropped():
+    from scrape_providers.capabilities import normalize_capabilities
+
+    caps, unknown = normalize_capabilities(["tools", "brand_new_knob"])
+    assert caps == ["tool_calling"]
+    assert unknown == ["brand_new_knob"]
+
+
+def test_merged_model_speaks_the_vocabulary_but_offerings_do_not(capsys):
+    from scrape_providers.emit import build_catalog
+
+    providers = [
+        Provider(
+            name="openrouter",
+            models=[
+                Model(
+                    id="moonshotai/kimi-k3",
+                    modalities=["text", "file"],
+                    capabilities=["tools", "temperature", "include_reasoning", "wat"],
+                )
+            ],
+        )
+    ]
+    catalog = build_catalog(providers)
+    entry = next(m for m in catalog["models"] if m["name"] == "kimi-k3")
+    assert entry["modalities"] == ["text", "pdf"]
+    assert entry["capabilities"] == ["tool_calling", "reasoning"]
+    # the provider's own words survive verbatim on its offering — normalizing
+    # them would destroy the evidence they exist to preserve
+    offering = catalog["providers"][0]["models"][0]
+    assert offering["reported_modalities"] == ["text", "file"]
+    assert offering["reported_capabilities"] == ["tools", "temperature", "include_reasoning", "wat"]
+    assert "wat" in capsys.readouterr().err
+
+
+def test_schema_enums_match_the_vocabulary():
+    from scrape_providers import capabilities
+    from scrape_providers import schema as schema_mod
+
+    props = schema_mod.load_schema()["$defs"]["modelCapabilities"]["properties"]
+    # the schema and the vocabulary must not drift apart
+    assert tuple(props["modalities"]["items"]["enum"]) == capabilities.MODALITIES
+    assert tuple(props["capabilities"]["items"]["enum"]) == capabilities.CAPABILITIES

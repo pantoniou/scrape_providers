@@ -51,7 +51,8 @@ output formatting, so a change in one layer doesn't ripple into the others.
 - `registry.py` — maps provider name → scraper class (`available()`, `get()`).
 - `emit.py` — `build_catalog` splits the scraped data into three top-level
   sections: `models` (a list of intrinsic capabilities, each entry's `name` is its
-  canonical id — context, modalities, capabilities, open_source, arena, plus
+  canonical id — context, modalities, capabilities (both in the controlled
+  vocabulary of `capabilities.py`), open_source, arena, plus
   `agents`: the canonical agent harness(es) that natively drive it), `providers`
   (each with `root_url`, an `endpoints` list of {protocol, endpoint}, and
   offerings of `canonical_id`/`provider_model_id`/`pricing` plus
@@ -89,6 +90,30 @@ output formatting, so a change in one layer doesn't ripple into the others.
   (`sort_keys=False`, models list sorted by name for determinism), pruning
   None/empty; `to_markdown` is the human view (agents shown as tool names, not
   full schemas).
+- `capabilities.py` — the controlled vocabulary for `models[].modalities` and
+  `models[].capabilities`. Providers describe the same abilities in
+  incomparable words — OpenRouter and the scrapers built on it (`openai`,
+  `google`) publish *request parameters* (`tools`, but also `top_a`, `min_p`),
+  Anthropic publishes product features (`thinking`, `citations`), DeepSeek
+  mixes in a wire protocol (`anthropic_api`) — so raw strings can't be compared
+  across providers. Two rules draw the line: a **capability** is something the
+  model can do that changes what you can build (a knob that tunes an ability
+  every model already has is not one: `temperature`, `max_tokens`, `tool_choice`,
+  which `tool_calling` already implies), and it is a property of the **model**,
+  not the route (`anthropic_api` belongs on the provider's endpoints). Three
+  tables: `_MODALITY_ALIASES`/`_CAPABILITY_ALIASES` map provider terms onto
+  `MODALITIES`/`CAPABILITIES` (collapsing `tools`/`tool_calls`/`function_calling`
+  into `tool_calling`, `thinking`/`include_reasoning` into `reasoning`, `file`
+  into `pdf`), and `_IGNORED` lists terms deliberately dropped — so an
+  unclassified term can be told apart from one already judged not to be a
+  capability, and `build_catalog` warns on stderr about anything in neither.
+  `structured_outputs` (schema-guaranteed) stays separate from `json_mode`
+  (valid JSON only), since the former is strictly stronger. Emission follows the
+  declared order of the tuples, not input or alphabetical order. **The
+  vocabulary applies only to the merged entries under `models`**; each
+  offering's `reported_*` keeps its provider's own words verbatim, which is the
+  evidence those fields exist to preserve. The schema mirrors both tuples as
+  `enum`s and a test pins them together so they can't drift.
 - `canonical.py` — `canonical_id` maps a provider-specific model id to a shared
   key (drops vendor prefix + lowercases, then normalizes provider-mangled version
   numbers — see below; `ALIASES` overrides), so the same model served by multiple

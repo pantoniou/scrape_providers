@@ -8,12 +8,14 @@ rather than serialization noise.
 from __future__ import annotations
 
 import re
+import sys
 from typing import Any
 
 import yaml
 
 from . import agent_profiles
 from .canonical import canonical_id
+from .capabilities import normalize_capabilities, normalize_modalities
 from .models import Model, Provider
 
 
@@ -113,7 +115,7 @@ def _naming_rank(provider: str, name: str | None, cid: str) -> tuple[int, int]:
     return (int(drops_size), _RESELLER_RANK.get(provider, 0))
 
 
-def _merge_capabilities(cid: str, views: list[tuple[str, Model]]) -> dict:
+def _merge_capabilities(cid: str, views: list[tuple[str, Model]], unmapped: set[str]) -> dict:
     """Build one model's intrinsic entry from every provider that serves it.
 
     A first-party provider serves only models it built, so when one of them
@@ -134,6 +136,12 @@ def _merge_capabilities(cid: str, views: list[tuple[str, Model]]) -> dict:
     default, which is an absence of a claim rather than a claim of closedness.
     ``display_name`` and ``arena`` are single values with no "strongest"
     answer, so ``_naming_rank`` picks one instead.
+
+    Modalities and capabilities are then mapped onto the controlled vocabulary
+    in :mod:`capabilities`, since providers describe the same abilities in
+    mutually incomparable words. Terms it recognizes neither as a capability nor
+    as a deliberate non-capability are collected in ``unmapped`` for the caller
+    to report.
     """
     authoritative = [v for v in views if v[0] not in _RESELLER_RANK] or views
     models = [m for _, m in authoritative]
@@ -144,6 +152,12 @@ def _merge_capabilities(cid: str, views: list[tuple[str, Model]]) -> dict:
     for m in models:
         modalities = _union(modalities, m.modalities)
         capabilities = _union(capabilities, m.capabilities)
+    # Only the merged entry speaks the canonical vocabulary; each offering's
+    # reported_* keeps its provider's own words (see capabilities.py).
+    modalities, unknown_mods = normalize_modalities(modalities)
+    capabilities, unknown_caps = normalize_capabilities(capabilities)
+    unmapped.update(unknown_mods)
+    unmapped.update(unknown_caps)
     named = sorted(views, key=lambda v: _naming_rank(v[0], v[1].display_name, cid))
     return {
         "display_name": next((m.display_name for _, m in named if m.display_name), None),
@@ -222,14 +236,23 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
         )
     # Emit models as a list (canonical id as `name`), sorted by name for
     # deterministic output; field order is intentional (see sort_keys=False).
+    unmapped: set[str] = set()
     model_list = [
         {
             "name": cid,
-            **_merge_capabilities(cid, views[cid]),
+            **_merge_capabilities(cid, views[cid], unmapped),
             "agents": sorted(model_agents.get(cid, ())),
         }
         for cid in sorted(views)
     ]
+    if unmapped:
+        # Dropped, but never silently: an unrecognized term is a provider's new
+        # vocabulary waiting to be classified in capabilities.py.
+        print(
+            f"warning: dropped {len(unmapped)} unrecognized capability/modality "
+            f"term(s): {', '.join(sorted(unmapped))}",
+            file=sys.stderr,
+        )
     catalog = {"models": model_list, "providers": provider_entries}
     if include_agents:
         catalog["agents"] = agent_profiles.build_agents()
