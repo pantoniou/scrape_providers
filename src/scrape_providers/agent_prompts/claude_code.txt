@@ -151,19 +151,14 @@ Never reuse tab IDs from a previous/other session. Follow these guidelines:
 
 gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.
 
-Current branch: master
+Current branch: <GIT_BRANCH>
 
-Main branch (you will usually use this for PRs): master
+Main branch (you will usually use this for PRs): <GIT_MAIN_BRANCH>
 
-Git user: Pantelis Antoniou
+Git user: <USER>
 
 Status:
-?? curated.yaml
-?? curated2.yaml
+<GIT_STATUS>
 
 Recent commits:
-77b677d Add OpenRouter Responses API endpoint
-35e5b2f update currated list
-ddfa10f Add openrouter top models to the curation list
-504de65 Update curation list with OpenAI gpt-5.6 class models
-8495c35 Fix Anthropic Sonnet pricing scrape
+<GIT_RECENT_COMMITS>
