@@ -25,7 +25,8 @@ ruff check . && ruff format .    # lint + format
 ### API keys
 
 Keys are read from the environment. They live in `~/work/fyai/providers.env`
-(`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`):
+(`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`,
+`FIREWORKS_API_KEY`, `OPENCODE_API_KEY`):
 
 ```bash
 set -a; . ~/work/fyai/providers.env; set +a
@@ -140,6 +141,39 @@ table is used; Batch/Flex/Priority are discounted/premium variants of the same
 figures. Google exposes two real surfaces — the native `generateContent` REST
 API and an OpenAI-compatible `chat/completions` endpoint — both listed under
 `endpoints`; `generate_content` was added to the protocol enum for the former.
+
+`fireworks` is **fully native** (`FIREWORKS_API_KEY`): the OpenAI-compatible
+`/inference/v1/models` API gives the served ids plus context length and
+tool/image-input flags, and per-token pricing comes from each model's public page
+(`fireworks.ai/models/fireworks/<slug>`) — its "Available Serverless" block holds
+the input / cached input / output triple and the display name, and a
+huggingface.co link on the page is what marks the model open-weight. Fireworks'
+`/pricing` page covers only fine-tuning and dedicated deployments, which is why
+pricing is scraped one model page at a time. The label above the prices names the
+component order, so it (not position) drives the parse; embedding/reranking models
+publish a single unlabelled price, read as `input`. Fireworks **routers**
+(`accounts/fireworks/routers/…`, the `-fast`/`-turbo` speed tiers) have no public
+page and are emitted without pricing rather than inheriting the base model's.
+Three surfaces: `chat_completions`, `responses`, and an Anthropic-format
+`messages` endpoint.
+
+`opencode` is OpenCode Zen (sst's gateway), also **fully native**
+(`OPENCODE_API_KEY`): `/zen/v1/models` gives the served ids and the docs page
+(`opencode.ai/docs/zen`) supplies a models table (display name, id, per-model
+endpoint) and a pricing table. The pricing table is keyed by display name, so it's
+joined to ids through the models table. Two wrinkles: long-context models are
+priced in `(≤ N tokens)` / `(> N tokens)` tiers and only the base tier is kept, and
+free models list `Free`, emitted as a real 0.0 rather than missing pricing. Zen
+forwards each model to its vendor, so all four protocols are listed under
+`endpoints` (`responses` for GPT, `messages` for Claude, `generate_content` for
+Gemini, plus OpenAI-compatible `chat_completions`) and vendor-dependent endpoint
+capabilities are left unstated. The docs give no context window, so Zen models
+carry one only when another provider serves the same canonical model.
+
+Because Fireworks writes version decimals as `p` (`kimi-k2p6`, `glm-5p2`),
+`canonical.py` rewrites a digit-`p`-digit run back to a decimal point so its
+models collapse with everyone else's `kimi-k2.6` / `glm-5.2`. No other provider's
+ids contain that pattern.
 
 Arena annotation (`arena.py`) is on by default (`--no-arena` skips the fetch) and
 adds LMArena Elo/rank to each model. The

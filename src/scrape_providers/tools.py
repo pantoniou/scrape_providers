@@ -40,6 +40,37 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": [],
         "local": ["function_calling"],
     },
+    ("fireworks", "chat_completions"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
+    ("fireworks", "responses"): {
+        "hosted": [],
+        "local": ["function_calling", "mcp"],
+    },
+    ("fireworks", "messages"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
+    # OpenCode Zen is a gateway: it forwards to each model's vendor, so the
+    # surface offers the wire protocol's tool plumbing but no hosted tools of
+    # its own.
+    ("opencode", "chat_completions"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
+    ("opencode", "responses"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
+    ("opencode", "messages"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
+    ("opencode", "generate_content"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
     ("openrouter", "chat_completions"): {
         "hosted": ["web_search"],
         "local": ["function_calling"],
@@ -168,6 +199,78 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "system_prompt_supported": True,
         "developer_role_supported": False,
         "automatic_prompt_caching_supported": True,
+    },
+    ("fireworks", "chat_completions"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "parallel_tool_calls_supported": True,
+        "tool_choice_supported": True,
+        "strict_json_schema_supported": True,
+        "shell_tool_supported": False,
+        "mcp_supported": False,
+        "server_side_conversation_state_supported": False,
+        "previous_response_id_supported": False,
+        "response_lifecycle_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": False,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+    },
+    ("fireworks", "responses"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "parallel_tool_calls_supported": True,
+        "tool_choice_supported": True,
+        "strict_json_schema_supported": True,
+        "shell_tool_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": True,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+    },
+    ("fireworks", "messages"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "tool_choice_supported": True,
+        "shell_tool_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": False,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+    },
+    # Zen forwards to each model's vendor, so anything vendor-dependent
+    # (caching mode, reasoning controls, server-side state) is left unstated.
+    ("opencode", "chat_completions"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "tool_choice_supported": True,
+        "shell_tool_supported": False,
+        "mcp_supported": False,
+        "system_prompt_supported": True,
+    },
+    ("opencode", "responses"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "tool_choice_supported": True,
+        "shell_tool_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": True,
+    },
+    ("opencode", "messages"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "tool_choice_supported": True,
+        "shell_tool_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": False,
+    },
+    ("opencode", "generate_content"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "tool_choice_supported": True,
+        "shell_tool_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": False,
     },
     ("google", "generate_content"): {
         "streaming_supported": True,

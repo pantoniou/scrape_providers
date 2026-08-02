@@ -791,3 +791,96 @@ def test_anthropic_live_scrape():
     assert provider.models
     assert all(m.id for m in provider.models)
     assert [e.protocol for e in provider.endpoints] == ["messages"]
+
+
+def test_fireworks_serverless_pricing_parse():
+    from scrape_providers.providers.fireworks import _parse_model_page
+
+    # The label names the order of the components; the values sit in a sibling
+    # node, and every ancestor repeats both texts.
+    html = """
+    <html><body><h1>Kimi K2.6</h1>
+    <a href="https://huggingface.co/moonshotai/Kimi-K2.6">weights</a>
+    <div><div><h3>Available Serverless</h3>
+      <div><div>$0.95 / $0.16 / $4.00</div>
+      <div>Per 1M Tokens (input/cached input/output)</div></div>
+    </div></div></body></html>
+    """
+    page = _parse_model_page(html)
+    assert page["display_name"] == "Kimi K2.6"
+    assert page["open_source"]  # HuggingFace weights link
+    assert page["pricing"].input == 0.95
+    assert page["pricing"].output == 4.0
+    assert page["pricing"].extra["cache_read"] == 0.16
+
+
+def test_fireworks_unlabelled_single_price_is_input():
+    from scrape_providers.providers.fireworks import _parse_model_page
+
+    # Embedding / reranking models publish one unlabelled per-1M price.
+    html = "<html><body><div><div>$0.10</div><div>Per 1M Tokens</div></div></body></html>"
+    pricing = _parse_model_page(html)["pricing"]
+    assert pricing.input == 0.1
+    assert pricing.output is None
+
+
+def test_opencode_docs_tables_join_by_display_name():
+    from scrape_providers.providers.opencode import _parse_docs
+
+    html = """
+    <html><body>
+    <table>
+      <tr><th>Model</th><th>Model ID</th><th>Endpoint</th></tr>
+      <tr><td>GPT 5.5</td><td>gpt-5.5</td><td>https://opencode.ai/zen/v1/responses</td></tr>
+      <tr><td>Kimi K2.6</td><td>kimi-k2.6</td><td>https://opencode.ai/zen/v1/chat/completions</td></tr>
+      <tr><td>Big Pickle</td><td>big-pickle</td><td>https://opencode.ai/zen/v1/chat/completions</td></tr>
+    </table>
+    <table>
+      <tr><th>Model</th><th>Input</th><th>Output</th><th>Cached Read</th><th>Cached Write</th></tr>
+      <tr><td>Big Pickle</td><td>Free</td><td>Free</td><td>Free</td><td>-</td></tr>
+      <tr><td>Kimi K2.6</td><td>$0.95</td><td>$4.00</td><td>$0.16</td><td>-</td></tr>
+      <tr><td>GPT 5.5 (&gt; 272K tokens)</td><td>$10.00</td><td>$60.00</td><td>$1.00</td><td>-</td></tr>
+      <tr><td>GPT 5.5 (&le; 272K tokens)</td><td>$5.00</td><td>$30.00</td><td>$0.50</td><td>-</td></tr>
+    </table>
+    </body></html>
+    """
+    docs = _parse_docs(html)
+    assert docs["kimi-k2.6"]["display_name"] == "Kimi K2.6"
+    assert docs["kimi-k2.6"]["pricing"].extra["cache_read"] == 0.16
+    # tiered rows collapse to the base tier, whichever order they're listed in
+    assert docs["gpt-5.5"]["pricing"].input == 5.0
+    assert docs["gpt-5.5"]["pricing"].output == 30.0
+    # "Free" is a real price of zero, not missing pricing
+    assert docs["big-pickle"]["pricing"].input == 0.0
+
+
+def test_canonical_collapses_fireworks_version_decimals():
+    from scrape_providers.canonical import canonical_id
+
+    assert canonical_id("accounts/fireworks/models/kimi-k2p6") == "kimi-k2.6"
+    assert canonical_id("accounts/fireworks/models/glm-5p2") == "glm-5.2"
+    # ids without a digit-p-digit run are untouched
+    assert canonical_id("openai/gpt-oss-120b") == "gpt-oss-120b"
+
+
+# Live end-to-end tests; only run when an API key is configured.
+def test_fireworks_live_scrape():
+    if not os.environ.get("FIREWORKS_API_KEY"):
+        pytest.skip("FIREWORKS_API_KEY not set")
+    with registry.get("fireworks")() as scraper:
+        provider = scraper.scrape()
+    assert provider.models
+    assert [e.protocol for e in provider.endpoints] == ["chat_completions", "responses", "messages"]
+    # every non-router model has a public page, hence a display name and price
+    served = [m for m in provider.models if "/models/" in m.id and m.pricing]
+    assert served and all(m.display_name for m in served)
+
+
+def test_opencode_live_scrape():
+    if not os.environ.get("OPENCODE_API_KEY"):
+        pytest.skip("OPENCODE_API_KEY not set")
+    with registry.get("opencode")() as scraper:
+        provider = scraper.scrape()
+    assert provider.models
+    priced = [m for m in provider.models if m.pricing]
+    assert len(priced) > len(provider.models) / 2  # docs cover most served ids
