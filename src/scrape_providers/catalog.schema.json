@@ -139,7 +139,7 @@
         "provider_model_id": { "type": "string" },
         "pricing": { "$ref": "#/$defs/pricing" },
         "reported_modalities": {
-          "description": "Modalities this provider publishes for this model, in its own vocabulary. Reported, not supported: providers publish only a positive set, so an absent entry is not evidence the route lacks it. The union across providers is under top-level `models`.",
+          "description": "Modalities this provider publishes for this model, in its own vocabulary. Reported, not supported: providers publish only a positive set, so an absent entry is not evidence the route lacks it. The merged, vendor-authoritative view is under top-level `models`.",
           "type": "array",
           "items": { "type": "string" }
         },

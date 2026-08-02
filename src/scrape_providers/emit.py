@@ -64,46 +64,47 @@ def _naming_rank(provider: str, name: str | None, cid: str) -> tuple[int, int]:
     return (int(drops_size), _RESELLER_RANK.get(provider, 0))
 
 
-def _merge_capabilities(
-    existing: dict | None, m: Model, provider: str, cid: str, best: dict[str, tuple[int, int]]
-) -> dict:
-    """Fold one provider's view of a model into the shared capability entry.
+def _merge_capabilities(cid: str, views: list[tuple[str, Model]]) -> dict:
+    """Build one model's intrinsic entry from every provider that serves it.
 
-    Providers describe the same model with differing completeness: a gateway may
-    publish nothing but an id, while the model's own vendor publishes context,
-    modalities and tool support. Fields that have a "strongest" answer therefore
-    take the best claim made by any provider — the widest context window, the
-    union of modalities and capabilities, open-source if anyone says so.
+    A first-party provider serves only models it built, so when one of them
+    serves this model its description **is** the model: a reseller cannot route
+    a capability the vendor doesn't have, and where the two disagree the vendor
+    is right. The vendor's views alone are therefore authoritative for context
+    window, max output, modalities and capabilities, and the resellers' claims
+    are dropped here — they remain visible per route as the offerings'
+    ``reported_*`` fields.
 
-    ``display_name`` and ``arena`` have no such answer: they are one value, so the
-    best-ranked provider wins (see ``_naming_rank``), with ``best`` carrying the
-    winning rank per field across calls. Otherwise a model's name would depend on
-    which provider happened to be scraped first.
+    With no first-party provider (open-weight models nobody in the catalog
+    built) every reseller's view counts, and since each publishes a partial
+    positive set the strongest claim wins: widest context window, union of
+    modalities and capabilities.
+
+    ``open_source`` is always an OR across all views, first-party included: a
+    provider that doesn't mention weights leaves the field at its ``False``
+    default, which is an absence of a claim rather than a claim of closedness.
+    ``display_name`` and ``arena`` are single values with no "strongest"
+    answer, so ``_naming_rank`` picks one instead.
     """
-    entry = {
-        "display_name": m.display_name,
-        "context_window": m.context_window,
-        "max_output_tokens": m.max_output_tokens,
-        "modalities": list(m.modalities),
-        "capabilities": list(m.capabilities),
-        "open_source": m.open_source,
-        "arena": m.arena.model_dump() if m.arena else None,
+    authoritative = [v for v in views if v[0] not in _RESELLER_RANK] or views
+    models = [m for _, m in authoritative]
+    contexts = [m.context_window for m in models if m.context_window is not None]
+    outputs = [m.max_output_tokens for m in models if m.max_output_tokens is not None]
+    modalities: list[str] = []
+    capabilities: list[str] = []
+    for m in models:
+        modalities = _union(modalities, m.modalities)
+        capabilities = _union(capabilities, m.capabilities)
+    named = sorted(views, key=lambda v: _naming_rank(v[0], v[1].display_name, cid))
+    return {
+        "display_name": next((m.display_name for _, m in named if m.display_name), None),
+        "context_window": max(contexts) if contexts else None,
+        "max_output_tokens": max(outputs) if outputs else None,
+        "modalities": modalities,
+        "capabilities": capabilities,
+        "open_source": any(m.open_source for _, m in views),
+        "arena": next((m.arena.model_dump() for _, m in named if m.arena), None),
     }
-    rank = _naming_rank(provider, m.display_name, cid)
-    for field in _VENDOR_FIELDS:
-        if entry[field] is not None and (field not in best or rank < best[field]):
-            best[field] = rank  # this provider is the closest one to name the model
-        elif existing is not None:
-            entry[field] = existing[field]
-    if existing is None:
-        return entry
-    for field in ("context_window", "max_output_tokens"):
-        values = [v for v in (existing[field], entry[field]) if v is not None]
-        entry[field] = max(values) if values else None
-    for field in ("modalities", "capabilities"):
-        entry[field] = _union(existing[field], entry[field])
-    entry["open_source"] = existing["open_source"] or entry["open_source"]
-    return entry
 
 
 def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> dict:
@@ -115,16 +116,18 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
     ``protocol`` are constant for a provider (each provider speaks one API), so
     they sit at the provider level; each model offering carries only what varies
     per model: ``canonical_id``, the provider's own ``provider_model_id``, and
-    ``pricing``. A model served by several providers appears once under ``models``.
+    ``pricing`` plus the ``reported_*`` fields. A model served by several
+    providers appears once under ``models``, described by its vendor where the
+    catalog has one (see :func:`_merge_capabilities`).
 
     When ``include_agents``, an ``agents`` section fully describes each known
     coding-agent harness (developer, native provider, system prompt, tool
     schemas), and each model is annotated with the canonical agent(s) that
     natively drive it (gpt -> codex, claude -> claude_code).
     """
-    models: dict[str, dict] = {}
-    # canonical id -> best (lowest) provider rank seen so far per vendor field.
-    naming: dict[str, dict[str, tuple[int, int]]] = {}
+    # canonical id -> every (provider name, model) that describes it, merged into
+    # the intrinsic entry once all providers have been walked.
+    views: dict[str, list[tuple[str, Model]]] = {}
     provider_entries: list[dict] = []
     # native provider key -> agent name(s); used to tag models with their agent.
     prov_agents = agent_profiles.native_provider_agents() if include_agents else {}
@@ -133,12 +136,7 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
         offerings = []
         for m in provider.models:
             cid = canonical_id(m.id)
-            # Intrinsic capabilities — shared across whoever serves the model, so
-            # merged across providers rather than taken from whichever one is
-            # scraped first (gateways report far less than the model's vendor).
-            models[cid] = _merge_capabilities(
-                models.get(cid), m, provider.name, cid, naming.setdefault(cid, {})
-            )
+            views.setdefault(cid, []).append((provider.name, m))
             if include_agents:
                 # A model is driven by agent A when its native provider serves it
                 # (bare id, e.g. openai serves `gpt-5.5`) or its id carries that
@@ -155,7 +153,8 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
                     "provider_model_id": m.id,
                     "pricing": m.pricing.model_dump() if m.pricing else None,
                     # What *this* provider publishes for the model, as opposed to
-                    # the union under `models`. Reported, not supported: providers
+                    # the vendor's authoritative entry under `models`. Reported,
+                    # not supported: providers
                     # only ever publish a positive set, in their own vocabulary
                     # (OpenRouter lists request parameters, Anthropic lists
                     # features, Zen publishes nothing), so a capability missing
@@ -175,8 +174,12 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
     # Emit models as a list (canonical id as `name`), sorted by name for
     # deterministic output; field order is intentional (see sort_keys=False).
     model_list = [
-        {"name": cid, **models[cid], "agents": sorted(model_agents.get(cid, ()))}
-        for cid in sorted(models)
+        {
+            "name": cid,
+            **_merge_capabilities(cid, views[cid]),
+            "agents": sorted(model_agents.get(cid, ())),
+        }
+        for cid in sorted(views)
     ]
     catalog = {"models": model_list, "providers": provider_entries}
     if include_agents:

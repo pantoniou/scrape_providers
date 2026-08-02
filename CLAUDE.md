@@ -56,24 +56,30 @@ output formatting, so a change in one layer doesn't ripple into the others.
   (each with `root_url`, an `endpoints` list of {protocol, endpoint}, and
   offerings of `canonical_id`/`provider_model_id`/`pricing` plus
   `reported_modalities`/`reported_capabilities` — what *that* provider publishes
-  for the model, as against the union under `models`; **reported, not
+  for the model, as against the merged entry under `models`; **reported, not
   supported**, since providers only ever publish a positive set in their own
   vocabulary (OpenRouter lists request parameters, Anthropic lists features, Zen
   publishes nothing), so an absent entry is never evidence the route lacks it),
   and `agents` (built
   from `agent_profiles.build_agents()` — see below). When several providers serve
-  the same canonical model their capability data is **merged, not first-wins**
-  (`_merge_capabilities`): the widest context window / max output, the union of
-  modalities and capabilities, open_source if any provider says so. `display_name`
+  the same canonical model, `_merge_capabilities` builds one entry from all of
+  their views. A first-party provider serves only models it built, so if one of
+  them is present **its description is the model** and the resellers' claims are
+  dropped from the intrinsic entry — a reseller can't route a capability the
+  vendor doesn't have, and where they disagree the vendor is right (Anthropic's
+  documented 1M context beats OpenRouter's 1048576). With no first-party provider
+  (open-weight models nobody in the catalog built) every reseller counts and the
+  strongest claim wins: widest context window / max output, union of modalities
+  and capabilities. `open_source` is an OR across *all* views including the
+  vendor's, because a provider that never mentions weights leaves the field at its
+  `False` default — an absent claim, not a claim of closedness. `display_name`
   and `arena` hold a single value rather than a maximum, so `_naming_rank` picks
   one: a name that keeps every parameter-count moniker in the canonical id
   (`gpt-oss-120b`) beats one that drops it, because for a family differing only by
   size a name without the size doesn't identify the model; distance from the
   vendor breaks the tie (`_RESELLER_RANK`: first-party providers serve only models
   they built and rank first, then fireworks, opencode, openrouter — the last
-  prefixes a vendor label the vendor doesn't use). Gateways (OpenCode Zen, and
-  Fireworks for its routers) publish far less than a model's own vendor, so taking
-  whichever provider was scraped first would silently drop capabilities.
+  prefixes a vendor label the vendor doesn't use).
   A model is tagged with agent
   A when its native provider serves it (bare id) or its id carries A's
   `native_provider` as a vendor prefix (OpenRouter's `openai/…`). `build_catalog`

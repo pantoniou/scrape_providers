@@ -902,13 +902,25 @@ def test_opencode_live_scrape():
     assert len(priced) > len(provider.models) / 2  # docs cover most served ids
 
 
-def test_capabilities_merge_across_providers_not_first_wins():
+def test_vendor_is_authoritative_over_resellers():
     from scrape_providers.emit import build_catalog
 
-    # A gateway that publishes little must not mask the vendor's richer data,
-    # whichever order the providers happen to be scraped in.
+    # A reseller cannot route a capability the vendor doesn't have, so where the
+    # two disagree the vendor wins outright — its list is not widened by theirs.
     providers = [
-        Provider(name="gateway", models=[Model(id="claude-opus-4-8", modalities=["text"])]),
+        Provider(name="opencode", models=[Model(id="claude-opus-4-8", modalities=["text"])]),
+        Provider(
+            name="openrouter",
+            models=[
+                Model(
+                    id="anthropic/claude-opus-4.8",
+                    context_window=200_000,
+                    max_output_tokens=32_000,
+                    modalities=["text", "file"],
+                    capabilities=["tools"],
+                )
+            ],
+        ),
         Provider(
             name="anthropic",
             models=[
@@ -922,26 +934,72 @@ def test_capabilities_merge_across_providers_not_first_wins():
                 )
             ],
         ),
+    ]
+    entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "claude-opus-4.8")
+    assert entry["display_name"] == "Claude Opus 4.8"
+    assert entry["context_window"] == 1_000_000
+    assert entry["max_output_tokens"] == 128_000
+    assert entry["modalities"] == ["text", "image"]  # no "file" from OpenRouter
+    assert entry["capabilities"] == ["thinking"]  # no "tools" from OpenRouter
+    # ...but the resellers' claims stay visible on their own offerings
+    zen, router, _ = (p["models"][0] for p in build_catalog(providers)["providers"])
+    assert router["reported_capabilities"] == ["tools"]
+    assert zen["reported_modalities"] == ["text"]
+
+
+def test_resellers_merge_when_no_vendor_serves_the_model():
+    from scrape_providers.emit import build_catalog
+
+    # Open-weight model nobody in the catalog built: every reseller publishes a
+    # partial positive set, so the strongest claim across them wins.
+    providers = [
         Provider(
-            name="openrouter",
+            name="fireworks",
             models=[
                 Model(
-                    id="anthropic/claude-opus-4.8",
-                    context_window=200_000,
-                    modalities=["file"],
-                    capabilities=["tools"],
+                    id="accounts/fireworks/models/kimi-k2p6",
+                    context_window=262_144,
+                    modalities=["text", "image"],
+                    capabilities=["function_calling"],
                     open_source=True,
                 )
             ],
         ),
+        Provider(
+            name="openrouter",
+            models=[
+                Model(
+                    id="moonshotai/kimi-k2.6",
+                    context_window=200_000,
+                    max_output_tokens=64_000,
+                    modalities=["text"],
+                    capabilities=["tools"],
+                )
+            ],
+        ),
     ]
-    entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "claude-opus-4.8")
-    assert entry["display_name"] == "Claude Opus 4.8"  # filled from whoever has one
-    assert entry["context_window"] == 1_000_000  # widest claim wins, not the first
-    assert entry["max_output_tokens"] == 128_000
-    assert entry["modalities"] == ["text", "image", "file"]  # union, first-seen order
-    assert entry["capabilities"] == ["thinking", "tools"]
-    assert entry["open_source"]  # true if any provider says so
+    entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "kimi-k2.6")
+    assert entry["context_window"] == 262_144  # widest
+    assert entry["max_output_tokens"] == 64_000  # only one provider published it
+    assert entry["modalities"] == ["text", "image"]
+    assert entry["capabilities"] == ["function_calling", "tools"]
+    assert entry["open_source"]
+
+
+def test_open_source_is_or_even_against_the_vendor():
+    from scrape_providers.emit import build_catalog
+
+    # openai doesn't flag gpt-oss as open-weight; False there is an unset default,
+    # not a claim that the weights are closed, so a reseller may still say so.
+    providers = [
+        Provider(name="openai", models=[Model(id="gpt-oss-120b")]),
+        Provider(
+            name="fireworks",
+            models=[Model(id="accounts/fireworks/models/gpt-oss-120b", open_source=True)],
+        ),
+    ]
+    entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "gpt-oss-120b")
+    assert entry["open_source"]
 
 
 def test_vendor_naming_wins_over_resellers():
