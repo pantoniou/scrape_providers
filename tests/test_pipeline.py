@@ -898,3 +898,45 @@ def test_opencode_live_scrape():
     assert provider.models
     priced = [m for m in provider.models if m.pricing]
     assert len(priced) > len(provider.models) / 2  # docs cover most served ids
+
+
+def test_capabilities_merge_across_providers_not_first_wins():
+    from scrape_providers.emit import build_catalog
+
+    # A gateway that publishes little must not mask the vendor's richer data,
+    # whichever order the providers happen to be scraped in.
+    providers = [
+        Provider(name="gateway", models=[Model(id="claude-opus-4-8", modalities=["text"])]),
+        Provider(
+            name="anthropic",
+            models=[
+                Model(
+                    id="claude-opus-4-8",
+                    display_name="Claude Opus 4.8",
+                    context_window=1_000_000,
+                    max_output_tokens=128_000,
+                    modalities=["text", "image"],
+                    capabilities=["thinking"],
+                )
+            ],
+        ),
+        Provider(
+            name="openrouter",
+            models=[
+                Model(
+                    id="anthropic/claude-opus-4.8",
+                    context_window=200_000,
+                    modalities=["file"],
+                    capabilities=["tools"],
+                    open_source=True,
+                )
+            ],
+        ),
+    ]
+    entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "claude-opus-4.8")
+    assert entry["display_name"] == "Claude Opus 4.8"  # filled from whoever has one
+    assert entry["context_window"] == 1_000_000  # widest claim wins, not the first
+    assert entry["max_output_tokens"] == 128_000
+    assert entry["modalities"] == ["text", "image", "file"]  # union, first-seen order
+    assert entry["capabilities"] == ["thinking", "tools"]
+    assert entry["open_source"]  # true if any provider says so

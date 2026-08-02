@@ -55,7 +55,14 @@ output formatting, so a change in one layer doesn't ripple into the others.
   `agents`: the canonical agent harness(es) that natively drive it), `providers`
   (each with `root_url`, an `endpoints` list of {protocol, endpoint}, and
   offerings of `canonical_id`/`provider_model_id`/`pricing`), and `agents` (built
-  from `agent_profiles.build_agents()` — see below). A model is tagged with agent
+  from `agent_profiles.build_agents()` — see below). When several providers serve
+  the same canonical model their capability data is **merged, not first-wins**
+  (`_merge_capabilities`): the widest context window / max output, the union of
+  modalities and capabilities, open_source if any provider says so, and the first
+  non-null display_name and arena. Gateways (OpenCode Zen, and Fireworks for its
+  routers) publish far less than a model's own vendor, so taking whichever
+  provider was scraped first would silently drop capabilities.
+  A model is tagged with agent
   A when its native provider serves it (bare id) or its id carries A's
   `native_provider` as a vendor prefix (OpenRouter's `openai/…`). `build_catalog`
   takes `include_agents=True`; `--no-agents` threads `include_agents=False`

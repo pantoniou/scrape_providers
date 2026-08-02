@@ -13,7 +13,7 @@ import yaml
 
 from . import agent_profiles
 from .canonical import canonical_id
-from .models import Provider
+from .models import Model, Provider
 
 
 def _prune(value: Any) -> Any:
@@ -24,6 +24,42 @@ def _prune(value: Any) -> Any:
     if isinstance(value, list):
         return [_prune(v) for v in value]
     return value
+
+
+def _union(first: list[str], second: list[str]) -> list[str]:
+    """Both lists, first-seen order preserved (deterministic given provider order)."""
+    return list(dict.fromkeys([*first, *second]))
+
+
+def _merge_capabilities(existing: dict | None, m: Model) -> dict:
+    """Fold one provider's view of a model into the shared capability entry.
+
+    Providers describe the same model with differing completeness: a gateway may
+    publish nothing but an id, while the model's own vendor publishes context,
+    modalities and tool support. Every field therefore takes the strongest claim
+    made by any provider — the widest context window, the union of modalities and
+    capabilities, open-source if anyone says so — instead of the first one seen.
+    """
+    entry = {
+        "display_name": m.display_name,
+        "context_window": m.context_window,
+        "max_output_tokens": m.max_output_tokens,
+        "modalities": list(m.modalities),
+        "capabilities": list(m.capabilities),
+        "open_source": m.open_source,
+        "arena": m.arena.model_dump() if m.arena else None,
+    }
+    if existing is None:
+        return entry
+    for field in ("display_name", "arena"):
+        entry[field] = existing[field] if existing[field] is not None else entry[field]
+    for field in ("context_window", "max_output_tokens"):
+        values = [v for v in (existing[field], entry[field]) if v is not None]
+        entry[field] = max(values) if values else None
+    for field in ("modalities", "capabilities"):
+        entry[field] = _union(existing[field], entry[field])
+    entry["open_source"] = existing["open_source"] or entry["open_source"]
+    return entry
 
 
 def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> dict:
@@ -51,19 +87,10 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
         offerings = []
         for m in provider.models:
             cid = canonical_id(m.id)
-            # Intrinsic capabilities — shared across whoever serves the model.
-            models.setdefault(
-                cid,
-                {
-                    "display_name": m.display_name,
-                    "context_window": m.context_window,
-                    "max_output_tokens": m.max_output_tokens,
-                    "modalities": m.modalities,
-                    "capabilities": m.capabilities,
-                    "open_source": m.open_source,
-                    "arena": m.arena.model_dump() if m.arena else None,
-                },
-            )
+            # Intrinsic capabilities — shared across whoever serves the model, so
+            # merged across providers rather than taken from whichever one is
+            # scraped first (gateways report far less than the model's vendor).
+            models[cid] = _merge_capabilities(models.get(cid), m)
             if include_agents:
                 # A model is driven by agent A when its native provider serves it
                 # (bare id, e.g. openai serves `gpt-5.5`) or its id carries that
