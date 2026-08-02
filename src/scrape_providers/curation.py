@@ -82,11 +82,24 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "gemini-3.5-flash",
         "gemini-3.1-flash-lite",
     ],
-    # Latest open-weight flagships routed via OpenRouter (truly open weights —
-    # Qwen's -max / Mistral's -large tiers are closed, so the open variants are
-    # picked instead).
+    # Latest flagships routed via OpenRouter, open- and closed-weight alike:
+    # OpenRouter is a real second (or third) route to the same model, with its
+    # own pricing, so the models curated under their native providers above are
+    # listed here too. Among the open-weight families the truly open variants are
+    # picked (Qwen's -max / Mistral's -large tiers are closed).
     "openrouter": [
+        "anthropic/claude-fable-5",
+        "anthropic/claude-haiku-4.5",
+        "anthropic/claude-opus-4.8",
+        "anthropic/claude-opus-5",
+        "anthropic/claude-sonnet-5",
         "cohere/command-a",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.1-pro-preview",
+        "google/gemini-3.5-flash",
+        "google/gemini-3.6-flash",
         "~google/gemini-flash-latest",
         "~google/gemini-pro-latest",
         "google/gemma-4-26b-a4b-it",
@@ -98,11 +111,22 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "microsoft/phi-4",
         "minimax/minimax-m3",
         "mistralai/mistral-small-2603",
+        "moonshotai/kimi-k2.7-code",
         "moonshotai/kimi-k3",
         "~moonshotai/kimi-latest",
         "nousresearch/hermes-4-405b",
         "nvidia/nemotron-3-ultra-550b-a55b",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "openai/gpt-5.4-mini",
+        "openai/gpt-5.5",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-luna-pro",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-sol-pro",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-terra-pro",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b:free",
         "openrouter/auto",
         "openrouter/auto-beta",
         "openrouter/bodybuilder",
@@ -112,6 +136,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "poolside/laguna-s-2.1",
         "poolside/laguna-s-2.1:free",
         "qwen/qwen3.5-397b-a17b",
+        "qwen/qwen3.7-plus",
         "qwen/qwen3.6-27b",
         "qwen/qwen3.6-35b-a3b",
         "qwen/qwen3-8b",

@@ -86,7 +86,8 @@ def test_agents_section_and_model_annotation():
     # models are tagged with the canonical agent that natively drives them
     by_name = {m["name"]: m for m in catalog["models"]}
     assert by_name["gpt-5.5"]["agents"] == ["codex"]  # native + openrouter prefix
-    assert by_name["claude-opus-4-8"]["agents"] == ["claude_code"]
+    # Anthropic's dashed version is canonicalized to the dotted form
+    assert by_name["claude-opus-4.8"]["agents"] == ["claude_code"]
     assert by_name["glm-5.2"]["agents"] == []  # no native agent
 
 
@@ -861,6 +862,19 @@ def test_canonical_collapses_fireworks_version_decimals():
     assert canonical_id("accounts/fireworks/models/glm-5p2") == "glm-5.2"
     # ids without a digit-p-digit run are untouched
     assert canonical_id("openai/gpt-oss-120b") == "gpt-oss-120b"
+
+
+def test_canonical_collapses_anthropic_version_dashes_and_dates():
+    from scrape_providers.canonical import canonical_id
+
+    # native Anthropic ids vs OpenRouter's dotted ones, incl. dated snapshots
+    assert canonical_id("claude-opus-4-8") == canonical_id("anthropic/claude-opus-4.8")
+    assert canonical_id("claude-haiku-4-5-20251001") == canonical_id("anthropic/claude-haiku-4.5")
+    assert canonical_id("claude-opus-4-5-20251101") == "claude-opus-4.5"
+    # the rules are scoped to claude- ids: nothing else loses its dashes or date
+    assert canonical_id("meta/muse-spark-1.1") == "muse-spark-1.1"
+    assert canonical_id("mistralai/mistral-small-2603") == "mistral-small-2603"
+    assert canonical_id("google/gemma-4-26b-a4b-it") == "gemma-4-26b-a4b-it"
 
 
 # Live end-to-end tests; only run when an API key is configured.

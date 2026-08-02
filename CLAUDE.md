@@ -65,8 +65,9 @@ output formatting, so a change in one layer doesn't ripple into the others.
   None/empty; `to_markdown` is the human view (agents shown as tool names, not
   full schemas).
 - `canonical.py` — `canonical_id` maps a provider-specific model id to a shared
-  key (drops vendor prefix + lowercases; `ALIASES` overrides), so the same model
-  served by multiple providers collapses into one `models` entry.
+  key (drops vendor prefix + lowercases, then normalizes provider-mangled version
+  numbers — see below; `ALIASES` overrides), so the same model served by multiple
+  providers collapses into one `models` entry.
 - `tools.py` — curated map of built-in tools and behavioral capabilities per
   `(provider, protocol)`, with tools split into `hosted` (run on the provider:
   web_search, code_interpreter, …) and `local` (the caller executes:
@@ -170,10 +171,15 @@ Gemini, plus OpenAI-compatible `chat_completions`) and vendor-dependent endpoint
 capabilities are left unstated. The docs give no context window, so Zen models
 carry one only when another provider serves the same canonical model.
 
-Because Fireworks writes version decimals as `p` (`kimi-k2p6`, `glm-5p2`),
-`canonical.py` rewrites a digit-`p`-digit run back to a decimal point so its
-models collapse with everyone else's `kimi-k2.6` / `glm-5.2`. No other provider's
-ids contain that pattern.
+Two providers mangle version numbers in their ids, so `canonical.py` normalizes
+both. Fireworks writes the decimal point as `p` (`kimi-k2p6`, `glm-5p2`); a
+digit-`p`-digit run is rewritten back to a decimal point, and no other provider's
+ids contain that pattern. Anthropic writes it as a dash and serves dated snapshot
+ids for older generations (`claude-opus-4-8`, `claude-opus-4-5-20251101`), so for
+`claude-` ids a trailing `-YYYYMMDD` is dropped and digit-dash-digit becomes a
+decimal point — collapsing them with OpenRouter's `anthropic/claude-opus-4.8` and
+Zen's `claude-opus-4-8`. Both rewrites are deliberately scoped (the Anthropic one
+by the `claude-` prefix) so nothing else loses a dash or a numeric suffix.
 
 Arena annotation (`arena.py`) is on by default (`--no-arena` skips the fetch) and
 adds LMArena Elo/rank to each model. The
