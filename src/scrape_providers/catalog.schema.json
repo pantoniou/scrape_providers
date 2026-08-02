@@ -137,7 +137,17 @@
       "properties": {
         "canonical_id": { "type": "string" },
         "provider_model_id": { "type": "string" },
-        "pricing": { "$ref": "#/$defs/pricing" }
+        "pricing": { "$ref": "#/$defs/pricing" },
+        "reported_modalities": {
+          "description": "Modalities this provider publishes for this model, in its own vocabulary. Reported, not supported: providers publish only a positive set, so an absent entry is not evidence the route lacks it. The union across providers is under top-level `models`.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reported_capabilities": {
+          "description": "Capabilities this provider publishes for this model, in its own vocabulary (OpenRouter lists request parameters, Anthropic lists features, OpenCode Zen publishes none). Reported, not supported — see `reported_modalities`.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
       }
     },
     "pricing": {

@@ -36,8 +36,10 @@ def test_emit_is_deterministic_and_prunes_none():
     assert offering["provider_model_id"] == "m1"
     assert "protocol" not in offering
     assert "output" not in offering["pricing"]  # None was pruned
-    # intrinsic capability data is NOT duplicated into the provider offering
+    # the merged/intrinsic view is NOT duplicated into the provider offering;
+    # only that provider's own reported_* fields ever appear there
     assert "modalities" not in offering
+    assert "capabilities" not in offering
 
 
 def test_canonical_collapse_across_providers():
@@ -947,7 +949,7 @@ def test_vendor_naming_wins_over_resellers():
 
     # Scrape order puts the resellers first; the vendor's name must still win.
     providers = [
-        Provider(name="opencode", models=[Model(id="gpt-oss-120b", display_name="gpt oss")]),
+        Provider(name="opencode", models=[Model(id="gpt-oss-120b", display_name="gpt oss 120b")]),
         Provider(
             name="openrouter",
             models=[Model(id="openai/gpt-oss-120b", display_name="OpenAI: gpt-oss-120b")],
@@ -966,7 +968,72 @@ def test_vendor_naming_wins_over_resellers():
     entry = next(m for m in build_catalog(providers)["models"] if m["name"] == "gpt-oss-120b")
     assert entry["display_name"] == "gpt-oss-120b"  # first-party openai, not a reseller
 
-    # With no first-party provider serving it, the nearest reseller names it.
+    # With no first-party provider serving it, the nearest reseller names it —
+    # a plain name ahead of OpenRouter's "Vendor: Model" label.
     resellers = [p for p in providers if p.name in ("opencode", "openrouter")]
     entry = next(m for m in build_catalog(resellers)["models"] if m["name"] == "gpt-oss-120b")
-    assert entry["display_name"] == "OpenAI: gpt-oss-120b"
+    assert entry["display_name"] == "gpt oss 120b"
+
+
+def test_offering_carries_what_that_provider_reported():
+    from scrape_providers.emit import build_catalog
+
+    # The union under `models` says what the model can do; each offering says
+    # what that provider published for it, which is not the same thing.
+    providers = [
+        Provider(
+            name="anthropic",
+            models=[
+                Model(
+                    id="claude-opus-4-8",
+                    modalities=["text", "pdf"],
+                    capabilities=["citations", "thinking"],
+                )
+            ],
+        ),
+        Provider(
+            name="opencode",
+            models=[Model(id="claude-opus-4-8", modalities=["text"])],
+        ),
+    ]
+    catalog = build_catalog(providers)
+    entry = next(m for m in catalog["models"] if m["name"] == "claude-opus-4.8")
+    anthropic, zen = (p["models"][0] for p in catalog["providers"])
+
+    assert entry["capabilities"] == ["citations", "thinking"]  # union
+    assert anthropic["reported_capabilities"] == ["citations", "thinking"]
+    assert anthropic["reported_modalities"] == ["text", "pdf"]
+    # a gateway that publishes nothing reports nothing — pruned, not "unsupported"
+    assert zen["reported_capabilities"] == []
+    assert zen["reported_modalities"] == ["text"]
+    offering = yaml.safe_load(to_yaml(providers))["providers"][1]["models"][0]
+    assert "reported_capabilities" not in offering
+
+
+def test_size_moniker_is_never_dropped_from_a_name():
+    from scrape_providers.emit import build_catalog
+
+    # gpt-oss-20b and gpt-oss-120b differ only by size, so a name that drops it
+    # beats neither — even when it comes from the model's own vendor.
+    providers = [
+        Provider(name="openai", models=[Model(id="gpt-oss-120b", display_name="gpt-oss")]),
+        Provider(
+            name="opencode",
+            models=[Model(id="gpt-oss-120b", display_name="GPT OSS 120B")],
+        ),
+    ]
+    catalog = build_catalog(providers)
+    entry = next(m for m in catalog["models"] if m["name"] == "gpt-oss-120b")
+    assert entry["display_name"] == "GPT OSS 120B"
+
+    # ...but the vendor still wins whenever both names carry the size.
+    providers[0].models[0].display_name = "gpt-oss-120b"
+    catalog = build_catalog(providers)
+    entry = next(m for m in catalog["models"] if m["name"] == "gpt-oss-120b")
+    assert entry["display_name"] == "gpt-oss-120b"
+
+    # the two sizes stay separate models, whatever they are called
+    both = build_catalog(
+        [Provider(name="openai", models=[Model(id="gpt-oss-20b"), Model(id="gpt-oss-120b")])]
+    )
+    assert [m["name"] for m in both["models"]] == ["gpt-oss-120b", "gpt-oss-20b"]

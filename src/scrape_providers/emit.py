@@ -7,6 +7,7 @@ rather than serialization noise.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import yaml
@@ -34,20 +35,37 @@ def _union(first: list[str], second: list[str]) -> list[str]:
 # How far a provider is from the model's vendor, for fields that can only take
 # one value (a name, not a maximum). First-party providers serve only models they
 # built, so if one of them serves the model it *is* the vendor and ranks 0; the
-# resellers below rank behind it, closest-to-the-weights first. Fireworks hosts
-# open weights and republishes the vendor's own model-card name; OpenRouter
-# prefixes a vendor label ("MoonshotAI: Kimi K3"); Zen renames freely.
-_RESELLER_RANK = {"fireworks": 1, "openrouter": 2, "opencode": 3}
+# resellers below rank behind it, by how close their naming is to the vendor's own:
+# Fireworks republishes the model card's name, Zen uses a plain name too, while
+# OpenRouter prefixes a vendor label ("MoonshotAI: Kimi K3") that the vendor
+# doesn't use, so it ranks last.
+_RESELLER_RANK = {"fireworks": 1, "opencode": 2, "openrouter": 3}
 # Fields with no "strongest claim" to take, so the nearest provider wins instead.
 _VENDOR_FIELDS = ("display_name", "arena")
+# Parameter-count monikers, the only thing telling some models apart (gpt-oss-20b
+# vs gpt-oss-120b, gemma-4-26b-a4b vs gemma-4-31b). Canonical ids always keep
+# them, but a provider's display name may not.
+_SIZE = re.compile(r"\d+(?:\.\d+)?\s*[bm]\b", re.IGNORECASE)
 
 
-def _provider_rank(provider: str) -> int:
-    return _RESELLER_RANK.get(provider, 0)
+def _sizes(text: str) -> set[str]:
+    return {match.lower().replace(" ", "") for match in _SIZE.findall(text)}
+
+
+def _naming_rank(provider: str, name: str | None, cid: str) -> tuple[int, int]:
+    """Preference for one provider's name of a model — lower is better.
+
+    A name that keeps every size moniker in the canonical id sorts ahead of one
+    that drops it, whoever published it: for a family that differs only by size,
+    a name without the size doesn't identify the model at all. Distance from the
+    vendor breaks the tie.
+    """
+    drops_size = bool(name is not None and not _sizes(cid) <= _sizes(name))
+    return (int(drops_size), _RESELLER_RANK.get(provider, 0))
 
 
 def _merge_capabilities(
-    existing: dict | None, m: Model, provider: str, best: dict[str, int]
+    existing: dict | None, m: Model, provider: str, cid: str, best: dict[str, tuple[int, int]]
 ) -> dict:
     """Fold one provider's view of a model into the shared capability entry.
 
@@ -58,9 +76,9 @@ def _merge_capabilities(
     union of modalities and capabilities, open-source if anyone says so.
 
     ``display_name`` and ``arena`` have no such answer: they are one value, so the
-    provider nearest the model's vendor wins (see ``_RESELLER_RANK``), with
-    ``best`` carrying the winning rank per field across calls. Otherwise a model's
-    name would depend on which provider happened to be scraped first.
+    best-ranked provider wins (see ``_naming_rank``), with ``best`` carrying the
+    winning rank per field across calls. Otherwise a model's name would depend on
+    which provider happened to be scraped first.
     """
     entry = {
         "display_name": m.display_name,
@@ -71,7 +89,7 @@ def _merge_capabilities(
         "open_source": m.open_source,
         "arena": m.arena.model_dump() if m.arena else None,
     }
-    rank = _provider_rank(provider)
+    rank = _naming_rank(provider, m.display_name, cid)
     for field in _VENDOR_FIELDS:
         if entry[field] is not None and (field not in best or rank < best[field]):
             best[field] = rank  # this provider is the closest one to name the model
@@ -106,7 +124,7 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
     """
     models: dict[str, dict] = {}
     # canonical id -> best (lowest) provider rank seen so far per vendor field.
-    naming: dict[str, dict[str, int]] = {}
+    naming: dict[str, dict[str, tuple[int, int]]] = {}
     provider_entries: list[dict] = []
     # native provider key -> agent name(s); used to tag models with their agent.
     prov_agents = agent_profiles.native_provider_agents() if include_agents else {}
@@ -119,7 +137,7 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
             # merged across providers rather than taken from whichever one is
             # scraped first (gateways report far less than the model's vendor).
             models[cid] = _merge_capabilities(
-                models.get(cid), m, provider.name, naming.setdefault(cid, {})
+                models.get(cid), m, provider.name, cid, naming.setdefault(cid, {})
             )
             if include_agents:
                 # A model is driven by agent A when its native provider serves it
@@ -136,6 +154,14 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
                     "canonical_id": cid,
                     "provider_model_id": m.id,
                     "pricing": m.pricing.model_dump() if m.pricing else None,
+                    # What *this* provider publishes for the model, as opposed to
+                    # the union under `models`. Reported, not supported: providers
+                    # only ever publish a positive set, in their own vocabulary
+                    # (OpenRouter lists request parameters, Anthropic lists
+                    # features, Zen publishes nothing), so a capability missing
+                    # here is not evidence the route lacks it.
+                    "reported_modalities": list(m.modalities),
+                    "reported_capabilities": list(m.capabilities),
                 }
             )
         provider_entries.append(

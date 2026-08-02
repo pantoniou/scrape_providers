@@ -54,16 +54,26 @@ output formatting, so a change in one layer doesn't ripple into the others.
   canonical id — context, modalities, capabilities, open_source, arena, plus
   `agents`: the canonical agent harness(es) that natively drive it), `providers`
   (each with `root_url`, an `endpoints` list of {protocol, endpoint}, and
-  offerings of `canonical_id`/`provider_model_id`/`pricing`), and `agents` (built
+  offerings of `canonical_id`/`provider_model_id`/`pricing` plus
+  `reported_modalities`/`reported_capabilities` — what *that* provider publishes
+  for the model, as against the union under `models`; **reported, not
+  supported**, since providers only ever publish a positive set in their own
+  vocabulary (OpenRouter lists request parameters, Anthropic lists features, Zen
+  publishes nothing), so an absent entry is never evidence the route lacks it),
+  and `agents` (built
   from `agent_profiles.build_agents()` — see below). When several providers serve
   the same canonical model their capability data is **merged, not first-wins**
   (`_merge_capabilities`): the widest context window / max output, the union of
   modalities and capabilities, open_source if any provider says so. `display_name`
-  and `arena` hold a single value rather than a maximum, so the provider nearest
-  the model's vendor wins (`_RESELLER_RANK`: first-party providers serve only
-  models they built and rank first; then fireworks, openrouter, opencode). Gateways (OpenCode Zen, and Fireworks for its
-  routers) publish far less than a model's own vendor, so taking whichever
-  provider was scraped first would silently drop capabilities.
+  and `arena` hold a single value rather than a maximum, so `_naming_rank` picks
+  one: a name that keeps every parameter-count moniker in the canonical id
+  (`gpt-oss-120b`) beats one that drops it, because for a family differing only by
+  size a name without the size doesn't identify the model; distance from the
+  vendor breaks the tie (`_RESELLER_RANK`: first-party providers serve only models
+  they built and rank first, then fireworks, opencode, openrouter — the last
+  prefixes a vendor label the vendor doesn't use). Gateways (OpenCode Zen, and
+  Fireworks for its routers) publish far less than a model's own vendor, so taking
+  whichever provider was scraped first would silently drop capabilities.
   A model is tagged with agent
   A when its native provider serves it (bare id) or its id carries A's
   `native_provider` as a vendor prefix (OpenRouter's `openai/…`). `build_catalog`
