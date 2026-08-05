@@ -286,6 +286,10 @@
         "reasoning_controls_supported": {
           "description": "Reasoning effort or thinking budget is caller-tunable.",
           "type": "boolean"
+        },
+        "response_compaction_supported": {
+          "description": "The surface can compact a server-side conversation in place when it approaches the context limit, replacing older turns with a summary it generates and continuing from the same response id. OpenAI's Responses API is the only surface in the catalog that offers this; elsewhere compaction is the caller's job.",
+          "type": "boolean"
         }
       }
     },

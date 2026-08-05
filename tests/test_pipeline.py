@@ -168,6 +168,17 @@ def test_endpoint_capabilities_are_provider_protocol_behavior():
     assert openrouter["mcp_supported"] is True
 
 
+def test_response_compaction_is_openais_alone():
+    from scrape_providers.tools import CAPABILITIES
+
+    supported = [
+        key for key, caps in CAPABILITIES.items() if caps.get("response_compaction_supported")
+    ]
+    assert supported == [("openai", "responses")]
+    # A gateway speaking the same wire protocol still can't compact for you.
+    assert CAPABILITIES[("openrouter", "responses")]["response_compaction_supported"] is False
+
+
 def test_unknown_endpoint_capabilities_are_pruned():
     provider = Provider(
         name="demo",

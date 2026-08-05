@@ -108,6 +108,7 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "developer_role_supported": True,
         "automatic_prompt_caching_supported": True,
         "reasoning_controls_supported": True,
+        "response_compaction_supported": True,
     },
     ("openai", "chat_completions"): {
         "streaming_supported": True,
@@ -124,6 +125,7 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "developer_role_supported": True,
         "automatic_prompt_caching_supported": True,
         "reasoning_controls_supported": True,
+        "response_compaction_supported": False,
     },
     ("openrouter", "responses"): {
         "streaming_supported": True,
@@ -140,6 +142,7 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "explicit_prompt_caching_supported": True,
         "automatic_prompt_caching_supported": True,
         "reasoning_controls_supported": True,
+        "response_compaction_supported": False,
     },
     ("openrouter", "chat_completions"): {
         "streaming_supported": True,
@@ -227,6 +230,7 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "developer_role_supported": True,
         "automatic_prompt_caching_supported": True,
         "reasoning_controls_supported": True,
+        "response_compaction_supported": False,
     },
     ("fireworks", "messages"): {
         "streaming_supported": True,

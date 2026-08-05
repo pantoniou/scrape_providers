@@ -91,6 +91,7 @@ class EndpointCapabilities(BaseModel):
     explicit_prompt_caching_supported: bool | None = None
     automatic_prompt_caching_supported: bool | None = None
     reasoning_controls_supported: bool | None = None
+    response_compaction_supported: bool | None = None
 
 
 class Endpoint(BaseModel):
