@@ -71,6 +71,21 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": [],
         "local": ["function_calling"],
     },
+    # Muse Spark is always a reasoning model; web search is a hosted tool but
+    # only reachable via the Responses API, not Chat Completions (see the docs'
+    # `web_search_options` note).
+    ("meta", "chat_completions"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
+    ("meta", "responses"): {
+        "hosted": ["web_search"],
+        "local": ["function_calling"],
+    },
+    ("meta", "messages"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
     ("openrouter", "chat_completions"): {
         "hosted": ["web_search"],
         "local": ["function_calling"],
@@ -237,6 +252,49 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "function_calling_supported": True,
         "tool_choice_supported": True,
         "shell_tool_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": False,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+    },
+    # Muse Spark always reasons (`reasoning_effort: "none"` is HTTP 400) and
+    # rejects `logprobs`, so `strict_json_schema_supported` (via `response_format`)
+    # and `reasoning_controls_supported` are the model's fixed behavior, not a
+    # per-call option.
+    ("meta", "chat_completions"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "parallel_tool_calls_supported": True,
+        "tool_choice_supported": True,
+        "strict_json_schema_supported": True,
+        "shell_tool_supported": False,
+        "mcp_supported": False,
+        "server_side_conversation_state_supported": False,
+        "previous_response_id_supported": False,
+        "response_lifecycle_supported": False,
+        "system_prompt_supported": True,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+    },
+    ("meta", "responses"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "parallel_tool_calls_supported": True,
+        "tool_choice_supported": True,
+        "strict_json_schema_supported": True,
+        "shell_tool_supported": False,
+        "mcp_supported": False,
+        "previous_response_id_supported": True,
+        "system_prompt_supported": True,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+    },
+    ("meta", "messages"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "tool_choice_supported": True,
+        "shell_tool_supported": False,
+        "mcp_supported": False,
         "system_prompt_supported": True,
         "developer_role_supported": False,
         "automatic_prompt_caching_supported": True,

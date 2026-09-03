@@ -913,6 +913,80 @@ def test_opencode_live_scrape():
     assert len(priced) > len(provider.models) / 2  # docs cover most served ids
 
 
+def test_meta_models_table_parse():
+    from scrape_providers.providers.meta import _parse_models_table
+
+    markdown = """
+| Model ID | Tier | Input modalities | Output modalities | Context window |
+| :---- | :---- | :---- | :---- | :---- |
+| `muse-spark-1.3` | Standard | Text, image, video, audio\\*, PDF | Text | 1,048,576 tokens |
+| `muse-spark-1.2` | Standard | Text, image, video, audio, PDF | Text | 1,048,576 tokens |
+"""
+    docs = _parse_models_table(markdown)
+    assert docs["muse-spark-1.3"]["context_window"] == 1_048_576
+    assert docs["muse-spark-1.3"]["modalities"] == ["text", "image", "video", "audio", "pdf"]
+
+
+def test_meta_pricing_joins_tier_model_list_to_shared_table():
+    from scrape_providers.providers.meta import _parse_pricing
+
+    markdown = """
+### Standard tier {#standard-tier}
+
+Models: `muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.1`.
+
+| Usage | Price per 1M tokens |
+| :---- | :---- |
+| Cached input | $0.15 |
+| Input | $1.25 |
+| Output | $4.25 |
+
+### Contributor tier {#contributor-tier}
+
+Models: `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor`.
+
+| Usage | Price per 1M tokens |
+| :---- | :---- |
+| Cached input | $0.002 |
+| Input | $0.10 |
+| Output | $0.20 |
+
+### Muse Voice Transcribe {#muse-voice-transcribe-pricing}
+
+| Usage | Price |
+| :---- | :---- |
+| Audio processed | $0.18 per hour |
+"""
+    docs = _parse_pricing(markdown)
+    assert docs["muse-spark-1.3"]["pricing"].input == 1.25
+    assert docs["muse-spark-1.3"]["pricing"].output == 4.25
+    assert docs["muse-spark-1.3"]["pricing"].extra["cache_read"] == 0.15
+    assert docs["muse-spark-1.1"]["pricing"].input == 1.25  # standard tier shared across versions
+    assert docs["muse-spark-1.3-contributor"]["pricing"].input == 0.10
+    assert "muse-voice-transcribe-1.0" not in docs  # per-hour pricing, not per-token
+
+
+def test_canonical_collapses_meta_muse_spark_ids():
+    from scrape_providers.canonical import canonical_id
+
+    # the default rule (strip vendor prefix, lowercase) is enough for Meta:
+    # native ids are bare, OpenRouter's carry a "meta/" prefix.
+    assert canonical_id("muse-spark-1.3") == "muse-spark-1.3"
+    assert canonical_id("meta/muse-spark-1.3") == "muse-spark-1.3"
+
+
+def test_meta_live_scrape():
+    if not os.environ.get("META_API_KEY"):
+        pytest.skip("META_API_KEY not set")
+    with registry.get("meta")() as scraper:
+        provider = scraper.scrape()
+    assert provider.models
+    assert all(m.id.startswith("muse-spark-") for m in provider.models)
+    assert [e.protocol for e in provider.endpoints] == ["chat_completions", "responses", "messages"]
+    priced = [m for m in provider.models if m.pricing]
+    assert priced and all(m.context_window for m in priced)
+
+
 def test_vendor_is_authoritative_over_resellers():
     from scrape_providers.emit import build_catalog
 

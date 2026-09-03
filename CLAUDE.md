@@ -26,7 +26,7 @@ ruff check . && ruff format .    # lint + format
 
 Keys are read from the environment. They live in `~/work/fyai/providers.env`
 (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`,
-`FIREWORKS_API_KEY`, `OPENCODE_API_KEY`):
+`FIREWORKS_API_KEY`, `OPENCODE_API_KEY`, `META_API_KEY`):
 
 ```bash
 set -a; . ~/work/fyai/providers.env; set +a
@@ -243,6 +243,26 @@ forwards each model to its vendor, so all four protocols are listed under
 Gemini, plus OpenAI-compatible `chat_completions`) and vendor-dependent endpoint
 capabilities are left unstated. The docs give no context window, so Zen models
 carry one only when another provider serves the same canonical model.
+
+`meta` is **fully native** (`META_API_KEY`): Meta's Model API
+(`api.meta.ai`/`dev.meta.ai`) is a separate, billed product from the
+open-weight Llama releases, serving Meta's proprietary Muse Spark family
+(`muse-spark-1.1`/`1.2`/`1.3`, plus discounted `-contributor` variants). The
+`GET /v1/models` API gives served ids but no context window or modality info
+(the docs point elsewhere for that), so those — plus pricing — come from two
+docs pages fetched as their raw **Markdown source** (`<url>.md`, not rendered
+HTML — the docs site is client-rendered, and the `.md` form is far simpler and
+more stable to parse): `docs/models` (a table of context window + input
+modalities per model id) and `docs/pricing-rate-limits` (per-tier pricing,
+where each tier's section states its member model ids in a "Models: `id`,
+`id`." sentence ahead of one shared price table, rather than a price per row).
+Muse Spark's capabilities (tool calling, structured outputs, always-on
+reasoning with `reasoning_effort`, web search grounding) are fixed across every
+version and described only in prose, so they're hardcoded rather than parsed.
+Meta also serves Muse Image (image generation) and Muse Voice Transcribe
+(speech-to-text) on the same API, but neither fits this catalog's
+per-million-token chat-model shape (priced per-image / per-audio-hour), so only
+Muse Spark is scraped.
 
 Two providers mangle version numbers in their ids, so `canonical.py` normalizes
 both. Fireworks writes the decimal point as `p` (`kimi-k2p6`, `glm-5p2`); a

@@ -109,6 +109,9 @@ ruff format .   # format
 | `openai` | OpenRouter (`openai/*`) + native pricing page | characteristics via OpenRouter; pricing scraped from OpenAI's docs, OpenRouter as fallback |
 | `deepseek` | native `/models` API + native pricing page | requires `DEEPSEEK_API_KEY`; cache-hit/miss pricing for all served models |
 | `google` | OpenRouter (`google/*`) + native pricing page | characteristics via OpenRouter; pricing scraped from Google's docs (joined by a slug of the page's per-model heading), OpenRouter as fallback |
+| `fireworks` | native `/inference/v1/models` API + per-model pages | requires `FIREWORKS_API_KEY`; pricing scraped one served model's public page at a time |
+| `opencode` | native `/zen/v1/models` API + docs page | requires `OPENCODE_API_KEY`; docs page supplies pricing and display names |
+| `meta` | native `/v1/models` API + docs pages (Markdown source) | requires `META_API_KEY`; Muse Spark family only (image/voice models excluded, priced per-image/per-hour rather than per-token) |
 
 API keys are read from the environment. A convenient pattern:
 
@@ -116,6 +119,9 @@ API keys are read from the environment. A convenient pattern:
 set -a; . ~/work/fyai/providers.env; set +a
 scrape-providers
 ```
+
+`META_API_KEY` (for `meta`) is read the same way; add it to that env file if
+you have one.
 
 ## Output schema
 

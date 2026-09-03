@@ -82,6 +82,12 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "minimax-m3",
         "muse-spark-1.2",
     ],
+    "meta": [
+        "muse-spark-1.3",
+        "muse-spark-1.3-contributor",
+        "muse-spark-1.2",
+        "muse-spark-1.2-contributor",
+    ],
     "google": [
         "gemini-3.1-pro-preview",
         "gemini-3.7-flash",
@@ -115,6 +121,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "google/gemma-4-31b-it",
         "google/gemma-4-31b-it:free",
         "meituan/longcat-2.0",
+        "meta/muse-spark-1.3",
         "meta/muse-spark-1.2",
         "microsoft/phi-4",
         "minimax/minimax-m3",
