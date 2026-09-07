@@ -182,7 +182,10 @@ output formatting, so a change in one layer doesn't ripple into the others.
 - `schema.py` + `catalog.schema.json` — JSON Schema (draft 2020-12) for the YAML
   output and `validate_catalog`. CLI: `--validate` checks the built catalog,
   `--schema` prints the schema. The schema is strict (prices `minimum: 0`,
-  protocol enum, `additionalProperties: false`) so it catches bad scraped data.
+  protocol enum, `additionalProperties: false`) so it catches bad scraped data,
+  and `validate_catalog` passes an explicit `jsonschema.FormatChecker()` because
+  `format` is annotation-only without one — a `format: date` field would
+  otherwise accept `28/05/2026`.
   Every property carries a `description`; the schema is the reference for what a
   field means, so keep them there rather than only in this file.
 - `cli.py` — argparse entry point (`--provider`, `--format`, `--output`,

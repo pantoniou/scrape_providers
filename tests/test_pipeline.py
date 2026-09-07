@@ -680,6 +680,7 @@ def test_deepseek_native_pricing_parse():
 
 def test_catalog_validates_against_schema():
     import jsonschema
+    from datetime import date
 
     from scrape_providers.emit import pruned_catalog
     from scrape_providers.models import ArenaScore, Model, Pricing, Provider
@@ -699,6 +700,8 @@ def test_catalog_validates_against_schema():
                     max_output_tokens=128000,
                     modalities=["text", "image"],
                     open_source=False,
+                    introduced=date(2026, 5, 28),
+                    updated=date(2026, 8, 13),
                     pricing=Pricing(input=5.0, output=25.0, extra={"cache_read": 0.5}),
                     arena=ArenaScore(rank=12, elo=1477.85, votes=13316),
                 )
@@ -709,6 +712,23 @@ def test_catalog_validates_against_schema():
     validate_catalog(catalog)  # valid (incl. the agents section): should not raise
     assert catalog["agents"]  # agents section is emitted and schema-valid
     assert catalog["providers"][0]["endpoints"][0]["capabilities"]["shell_tool_supported"]
+    # Dates reach the catalog as ISO strings (`format: date`), on the merged
+    # model entry only, and personas rank the provider's own lineup.
+    assert catalog["models"][0]["introduced"] == "2026-05-28"
+    assert catalog["models"][0]["updated"] == "2026-08-13"
+    assert catalog["providers"][0]["personas"]["plan"] == ["claude-opus-4-8"]
+
+    # a malformed date must fail validation
+    bad_date = pruned_catalog(providers)
+    bad_date["models"][0]["introduced"] = "28/05/2026"
+    with pytest.raises(jsonschema.ValidationError):
+        validate_catalog(bad_date)
+
+    # personas are a closed vocabulary (additionalProperties: false)
+    bad_persona = pruned_catalog(providers)
+    bad_persona["providers"][0]["personas"]["vibe"] = ["claude-opus-4-8"]
+    with pytest.raises(jsonschema.ValidationError):
+        validate_catalog(bad_persona)
 
     # an unknown protocol must fail validation
     bad = pruned_catalog(providers)
@@ -1522,3 +1542,12 @@ def test_schema_enums_match_the_vocabulary():
     # the schema and the vocabulary must not drift apart
     assert tuple(props["modalities"]["items"]["enum"]) == capabilities.MODALITIES
     assert tuple(props["capabilities"]["items"]["enum"]) == capabilities.CAPABILITIES
+
+    # Personas are a controlled vocabulary too: the schema mirrors them as the
+    # keys of a closed (`additionalProperties: false`) object, so a persona added
+    # to `PERSONAS` and not to the schema would fail validation at emit time.
+    from scrape_providers.personas import PERSONAS
+
+    personas = schema_mod.load_schema()["$defs"]["provider"]["properties"]["personas"]
+    assert tuple(personas["properties"]) == PERSONAS
+    assert personas["additionalProperties"] is False
