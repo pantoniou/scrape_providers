@@ -7,6 +7,8 @@ into this model.
 
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 
@@ -40,6 +42,15 @@ class Model(BaseModel):
     modalities: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)
     open_source: bool = False
+    # Dates are a property of the *model*, not of a provider's listing, so they
+    # surface only on the merged catalog entry (see emit._merge_dates). What a
+    # scraper puts here is that provider's evidence for them: `introduced` is
+    # the date this provider began serving the model (the vendor's own date is
+    # the release date; a reseller's is an upper bound), and `updated` is the
+    # date the model behind a stable id was last revised in place, which only a
+    # provider that publishes a version marker can fill in.
+    introduced: date | None = None
+    updated: date | None = None
     pricing: Pricing | None = None
     arena: ArenaScore | None = None
     # Canonical agent harness(es) that natively drive this model (gpt -> codex,

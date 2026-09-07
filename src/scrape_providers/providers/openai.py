@@ -12,7 +12,9 @@ not found on the page fall back to OpenRouter's pricing.
 
 from __future__ import annotations
 
+import os
 import re
+from datetime import date
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -20,7 +22,7 @@ from selectolax.parser import HTMLParser
 from ..base import Scraper
 from ..models import Pricing, Provider
 from ..tools import endpoint_for
-from . import openrouter
+from . import created_date, openrouter
 
 PRICING_URL = "https://platform.openai.com/docs/pricing"
 
@@ -28,6 +30,7 @@ PRICING_URL = "https://platform.openai.com/docs/pricing"
 # pricing (fine-tuning, media, tools, transcription); such tables are skipped.
 _SKIP_COLUMNS = {"training", "size", "use case", "price per second", "tool", "estimated cost"}
 _MODALITY_WORDS = {"text", "audio", "image", "video"}
+NATIVE_MODELS_URL = "https://api.openai.com/v1/models"
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
 
 
@@ -37,6 +40,7 @@ class OpenAIScraper(Scraper):
 
     def scrape(self) -> Provider:
         native_pricing = self._fetch_native_pricing()
+        native_dates = self._fetch_native_dates()
         models = []
         for raw in openrouter.fetch_models(self._client):
             if not raw["id"].startswith(self._prefix):
@@ -45,6 +49,12 @@ class OpenAIScraper(Scraper):
             override = native_pricing.get(model.id)
             if override is not None:
                 model.pricing = override
+            # `to_model` filled this from OpenRouter, i.e. the date OpenRouter
+            # listed the model. OpenAI is first-party here, so emit will treat
+            # this provider's date as the release date — only the native API may
+            # supply it. Without a key, report nothing rather than pass a
+            # reseller's listing date off as the vendor's.
+            model.introduced = native_dates.get(model.id)
             models.append(model)
         return Provider(
             name=self.name,
@@ -55,6 +65,28 @@ class OpenAIScraper(Scraper):
             ],
             models=models,
         )
+
+    def _fetch_native_dates(self) -> dict[str, date]:
+        """``model id -> creation date`` from the native API (needs a key).
+
+        The native ``/v1/models`` list is useless for characteristics (bare ids
+        and nothing else), but its ``created`` stamps are OpenAI's own and so are
+        the models' actual release dates.
+        """
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            return {}
+        try:
+            resp = self._client.get(NATIVE_MODELS_URL, headers={"Authorization": f"Bearer {key}"})
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return {}
+        dates = {}
+        for raw in resp.json().get("data", []):
+            when = created_date(raw)
+            if when is not None:
+                dates[raw["id"]] = when
+        return dates
 
     def _fetch_native_pricing(self) -> dict[str, Pricing]:
         try:

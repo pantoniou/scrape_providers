@@ -11,9 +11,31 @@ Two native sources:
 DeepSeek caching is automatic, so cache-hit (``cache_read``) pricing is published
 for all their models; this is why we scrape DeepSeek directly rather than relying
 on OpenRouter's spotty per-host cache figures.
+
+Known upstream breakage (checked 2026-09-07): the **English** pricing page is
+gone, so DeepSeek currently emits with no pricing at all. It has not moved —
+``/quick_start/pricing`` is still canonical in their ``sitemap.xml`` and the
+English JS bundle still routes it to ``@site/docs/quick_start/pricing.mdx``
+(chunk ``2415``) — but that chunk is not deployed, and their server answers any
+missing path with the SPA index instead of a 404. That is why the fetch returns
+HTTP 200 and ``_parse_pricing`` finds no ``MODEL`` table; the resulting empty
+dict is reported by ``build_catalog``'s unpriced-models warning.
+
+Deliberately **not** worked around. The only live page is the ``zh-cn`` locale,
+which is priced in CNY and has since moved to peak / off-peak tiers; converting
+it would make the catalog's USD figures FX-derived and drifting, and emitting CNY
+would break the "normalized to USD per million tokens" invariant. Priceless plus
+a warning is the honest state until the English page returns.
+
+When it does: prices are expected to be tiered, and the catalog takes the
+**peak (standard)** rate — the price you pay unless you deliberately schedule
+around it, matching how the Google scraper keeps Standard and drops
+Batch/Flex/Priority.
 """
 
 from __future__ import annotations
+
+from datetime import date
 
 import os
 import re
@@ -26,8 +48,16 @@ from ..models import Model, Pricing, Provider
 from ..tools import endpoint_for
 
 MODELS_URL = "https://api.deepseek.com/models"
+# The zh-cn locale of the same doc. Used *only* for the model-version row (see
+# `_fetch_versions`), never for prices: that table is in CNY and peak/off-peak
+# tiered, whereas the version cell is a plain ASCII build name in either locale.
+VERSIONS_URL = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
 PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing"
 
+# "模型版本" — the only row on the page that is a version marker.
+_VERSION_ROW = "版本"
+# The build suffix on a version name: DeepSeek-V4-Flash-0731 -> July 31.
+_BUILD_DATE = re.compile(r"-(\d{2})(\d{2})$")
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
 _FOOTNOTE = re.compile(r"\(.*?\)|\s+")  # strip "(1)" footnotes / whitespace from ids
 
@@ -37,6 +67,7 @@ class DeepSeekScraper(Scraper):
 
     def scrape(self) -> Provider:
         details = self._fetch_pricing()  # id -> parsed characteristics + pricing
+        versions = self._fetch_versions()  # id -> in-place revision date
         models: list[Model] = []
         for model_id in self._fetch_model_ids():
             d = details.get(model_id, {})
@@ -49,6 +80,7 @@ class DeepSeekScraper(Scraper):
                     modalities=["text"],
                     capabilities=d.get("capabilities", []),
                     open_source=True,
+                    updated=versions.get(model_id),
                     pricing=d.get("pricing"),
                 )
             )
@@ -73,6 +105,15 @@ class DeepSeekScraper(Scraper):
         resp.raise_for_status()
         return [m["id"] for m in resp.json().get("data", [])]
 
+    def _fetch_versions(self) -> dict[str, date]:
+        """Best-effort model-version row from the zh-cn docs (see VERSIONS_URL)."""
+        try:
+            resp = self._client.get(VERSIONS_URL, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return {}
+        return parse_versions(resp.text)
+
     def _fetch_pricing(self) -> dict[str, dict]:
         try:
             resp = self._client.get(PRICING_URL, headers={"User-Agent": "Mozilla/5.0"})
@@ -80,6 +121,48 @@ class DeepSeekScraper(Scraper):
         except httpx.HTTPError:
             return {}
         return _parse_pricing(resp.text)
+
+
+def parse_versions(html: str, today: date | None = None) -> dict[str, date]:
+    """``model id -> in-place revision date`` from the docs' model-version row.
+
+    DeepSeek serves stable ids whose weights are swapped underneath them — the
+    docs state that ``deepseek-v4-flash`` currently runs ``DeepSeek-V4-Flash-0731``
+    — which is exactly the in-place revision the catalog's ``updated`` field
+    means. The row sits in the same transposed table as everything else, so the
+    model ids come from the header and the versions from the row beneath.
+
+    The build suffix carries no year (``-0731``), so it is resolved to the most
+    recent such month/day that is not in the future. A revision the docs describe
+    as current cannot postdate today, and DeepSeek has never kept a build listed
+    for over a year, so this is unambiguous in practice.
+    """
+    tree = HTMLParser(html)
+    for table in tree.css("table"):
+        rows = [[c.text(strip=True) for c in tr.css("th,td")] for tr in table.css("tr")]
+        if not rows or not rows[0]:
+            continue
+        ids = [_clean_id(c) for c in rows[0][1:]]
+        for row in rows[1:]:
+            if not row or _VERSION_ROW not in row[0]:
+                continue
+            today = today or date.today()
+            versions: dict[str, date] = {}
+            for model_id, cell in zip(ids, row[1:]):
+                match = _BUILD_DATE.search(cell)
+                if not match:
+                    continue  # e.g. an experimental build with no dated suffix
+                month, day = int(match.group(1)), int(match.group(2))
+                for year in (today.year, today.year - 1):
+                    try:
+                        when = date(year, month, day)
+                    except ValueError:
+                        break  # not a real month/day; not a build date after all
+                    if when <= today:
+                        versions[model_id] = when
+                        break
+            return versions
+    return {}
 
 
 def _parse_pricing(html: str) -> dict[str, dict]:

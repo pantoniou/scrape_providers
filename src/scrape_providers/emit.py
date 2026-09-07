@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-from . import agent_profiles
+from . import agent_profiles, personas as personas_mod
 from .canonical import canonical_id
 from .capabilities import normalize_capabilities, normalize_modalities
 from .models import Model, Provider
@@ -167,6 +167,37 @@ def _merge_capabilities(cid: str, views: list[tuple[str, Model]], unmapped: set[
         "capabilities": capabilities,
         "open_source": any(m.open_source for _, m in views),
         "arena": next((m.arena.model_dump() for _, m in named if m.arena), None),
+        **_merge_dates(views, authoritative),
+    }
+
+
+def _merge_dates(views: list[tuple[str, Model]], authoritative: list[tuple[str, Model]]) -> dict:
+    """The model's own dates, distilled from what each provider reports.
+
+    ``introduced`` is the model's release date. A provider's ``introduced`` is
+    only ever the date *it* began serving the model, so the vendor's is the
+    release date itself while a reseller's is an upper bound on it — measured
+    across the catalog, a first-party date is earlier than or equal to the
+    resellers' in the overwhelming majority of cases. So the vendor's date wins
+    where the catalog has that vendor, exactly as in :func:`_merge_capabilities`;
+    failing that, the earliest reseller date is the best available bound.
+
+    ``updated`` is the date the model behind a stable id was last revised in
+    place. A version bump normally mints a *new* canonical id (`gemini-3.7-flash`
+    -> `gemini-3.8-flash`) and so a new entry rather than an update, which is why
+    this is rare and set only by providers that publish a version marker for an
+    unchanging id. The latest such date wins, and only vendors report it.
+    """
+    introduced = [m.introduced for _, m in authoritative if m.introduced]
+    if not introduced:
+        introduced = [m.introduced for _, m in views if m.introduced]
+    updated = [m.updated for _, m in views if m.updated]
+    # ISO strings, not date objects: the catalog is validated as JSON Schema
+    # (`type: string, format: date`) and a bare date would round-trip through
+    # YAML as a timestamp scalar instead.
+    return {
+        "introduced": min(introduced).isoformat() if introduced else None,
+        "updated": max(updated).isoformat() if updated else None,
     }
 
 
@@ -195,11 +226,15 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
     # native provider key -> agent name(s); used to tag models with their agent.
     prov_agents = agent_profiles.native_provider_agents() if include_agents else {}
     model_agents: dict[str, set[str]] = {}
+    # provider name -> ids it serves with no input price, reported at the end.
+    unpriced: dict[str, list[str]] = {}
     for provider in providers:
         offerings = []
         for m in provider.models:
             cid = canonical_id(m.id)
             views.setdefault(cid, []).append((provider.name, m))
+            if m.pricing is None or m.pricing.input is None:
+                unpriced.setdefault(provider.name, []).append(m.id)
             if include_agents:
                 # A model is driven by agent A when its native provider serves it
                 # (bare id, e.g. openai serves `gpt-5.5`) or its id carries that
@@ -253,6 +288,24 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
             f"term(s): {', '.join(sorted(unmapped))}",
             file=sys.stderr,
         )
+    for name in sorted(unpriced):
+        # A served route whose price we couldn't find. Kept in the catalog
+        # (it is real and callable, and a missing `pricing` block says so
+        # honestly), but never silently: the provider may have delisted the
+        # model, or moved the page the price is scraped from.
+        ids = unpriced[name]
+        print(
+            f"warning: {name}: {len(ids)} model(s) served with no input "
+            f"pricing: {_describe(sorted(ids))}",
+            file=sys.stderr,
+        )
+    # Personas rank each provider's own lineup, so they need the provider's
+    # prices *and* the merged entries' Elo — hence built here, once both exist.
+    strength = {
+        m["name"]: m["arena"]["elo"] for m in model_list if m.get("arena") and m["arena"].get("elo")
+    }
+    for entry in provider_entries:
+        entry["personas"] = personas_mod.build_personas(entry["models"], strength)
     catalog = {"models": model_list, "providers": provider_entries}
     if include_agents:
         catalog["agents"] = agent_profiles.build_agents()
@@ -264,11 +317,19 @@ def pruned_catalog(providers: list[Provider], *, include_agents: bool = True) ->
     return _prune(build_catalog(providers, include_agents=include_agents))
 
 
-def to_yaml(providers: list[Provider], *, include_agents: bool = True) -> str:
-    catalog = pruned_catalog(providers, include_agents=include_agents)
+def dump_yaml(catalog: dict) -> str:
+    """Serialize an already-built catalog.
+
+    Split out from :func:`to_yaml` so a caller that also validates or selects can
+    build the catalog once; building it twice repeats its stderr warnings.
+    """
     # sort_keys=False to keep the intentional field order (name, root_url,
     # endpoint, protocol, models); determinism comes from the sorted models map.
     return yaml.safe_dump(catalog, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
+def to_yaml(providers: list[Provider], *, include_agents: bool = True) -> str:
+    return dump_yaml(pruned_catalog(providers, include_agents=include_agents))
 
 
 def _tokens(n: int | None) -> str:

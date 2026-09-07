@@ -28,6 +28,7 @@ from selectolax.parser import HTMLParser
 from ..base import Scraper
 from ..models import Model, Pricing, Provider
 from ..tools import endpoint_for
+from . import created_date
 
 API_ROOT = "https://api.fireworks.ai/inference/v1"
 MODELS_URL = f"{API_ROOT}/models"
@@ -57,6 +58,7 @@ class FireworksScraper(Scraper):
                     modalities=modalities,
                     capabilities=["function_calling"] if entry.get("supports_tools") else [],
                     open_source=page.get("open_source", False),
+                    introduced=created_date(entry),
                     pricing=page.get("pricing"),
                 )
             )

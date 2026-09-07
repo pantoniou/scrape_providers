@@ -57,6 +57,13 @@ class GoogleScraper(Scraper):
             if not raw["id"].startswith(self._prefix):
                 continue
             model = openrouter.to_model(raw, strip_prefix=True)
+            # Characteristics come from OpenRouter, and so would `introduced` —
+            # but Google ranks first-party here, and Google publishes no native
+            # model list to take a real release date from. Drop it rather than
+            # let OpenRouter's listing date masquerade as the vendor's; emit
+            # then falls back to the resellers' earliest, which is that date
+            # anyway, but correctly labelled as a bound.
+            model.introduced = None
             override = native_pricing.get(model.id)
             if override is not None:
                 model.pricing = override

@@ -52,7 +52,8 @@ output formatting, so a change in one layer doesn't ripple into the others.
 - `emit.py` — `build_catalog` splits the scraped data into three top-level
   sections: `models` (a list of intrinsic capabilities, each entry's `name` is its
   canonical id — context, modalities, capabilities (both in the controlled
-  vocabulary of `capabilities.py`), open_source, arena, plus
+  vocabulary of `capabilities.py`), open_source, arena, `introduced`/`updated`
+  (see below), plus
   `agents`: the canonical agent harness(es) that natively drive it), `providers`
   (each with `root_url`, an `endpoints` list of {protocol, endpoint}, and
   offerings of `canonical_id`/`provider_model_id`/`pricing` plus
@@ -89,7 +90,33 @@ output formatting, so a change in one layer doesn't ripple into the others.
   the per-model tags. `to_yaml` emits with intentional field order
   (`sort_keys=False`, models list sorted by name for determinism), pruning
   None/empty; `to_markdown` is the human view (agents shown as tool names, not
-  full schemas).
+  full schemas). `build_catalog` also warns on stderr, per provider, about served
+  models with no input price. Such a model is **kept** (the route is real and
+  callable, and an absent `pricing` block says so honestly) — but never silently,
+  since the cause is usually that the provider delisted the model or moved the
+  page its price is scraped from. This is the catalog's only signal that a
+  pricing scraper has silently gone stale.
+- `personas.py` — per-provider **persona rankings**: `providers[].personas` maps
+  an orchestration persona (`orchestrate`, `plan`, `code`, `explore`, `review`,
+  `summarize` — a fixed vocabulary, emitted in that order) to that provider's own
+  models, best first, as `provider_model_id`s so a list is dispatchable as-is.
+  The question is "which of *this* lineup runs this step", so the answer is
+  per-provider and differs per step. **Strength** is the merged entry's LMArena
+  Elo — taken from `models`, not the offering, so every provider serving a scored
+  model inherits it (Fireworks' `glm-5p3` is the `glm-5.3` the board ranks); a
+  model the board doesn't score is **omitted rather than guessed at**, since the
+  only other signal is price and imputing strength from price would collapse both
+  axes into one and make the ranking circular. **Cost** is a blend of that
+  provider's input and output prices, weighted per persona (`input_share`),
+  because personas have different token shapes — a reviewer reads far more than
+  it writes, a planner emits long reasoning. Each persona then scores
+  `strength_weight` against cost, so `orchestrate` (0.90) takes the strongest and
+  barely looks at the bill while `summarize` (0.15) takes the cheapest competent
+  model. Candidates are first reduced to the **Pareto frontier**: an offering
+  both weaker *and* dearer than another of the same provider's is dominated and
+  dropped, not ranked last. Because the Elo comes from the merged entries, a
+  `--select providers/<name>/personas` deliberately scrapes **every** provider,
+  unlike other `providers/<name>/…` paths.
 - `capabilities.py` — the controlled vocabulary for `models[].modalities` and
   `models[].capabilities`. Providers describe the same abilities in
   incomparable words — OpenRouter and the scrapers built on it (`openai`,
@@ -199,7 +226,15 @@ served ids and the docs pricing page (a transposed table parsed in
 `providers/deepseek.py`) gives cache-hit/miss input, output, context, and max
 output for every model. DeepSeek caching is automatic, so `cache_read` pricing is
 available for all its models — the reason to scrape it directly rather than rely
-on OpenRouter's spotty per-host cache figures. Note this exposes only the models
+on OpenRouter's spotty per-host cache figures. **Currently DeepSeek emits no
+pricing at all**: as of 2026-09-07 the English pricing page's content is missing
+upstream (still canonical in their sitemap and still routed by their JS bundle,
+but the chunk isn't deployed, and their server returns the SPA index for missing
+paths instead of a 404 — hence a useless HTTP 200). The only live page is the
+`zh-cn` locale, in CNY and now peak/off-peak tiered; converting it would make the
+catalog's USD figures FX-derived, so this is deliberately left unfixed and
+surfaced by the unpriced-models warning instead. If the page returns, take the
+**peak (standard)** tier, as the Google scraper does with Standard. Note this exposes only the models
 DeepSeek itself serves (currently 2), not the third-party-hosted `deepseek/*`
 variants on OpenRouter.
 
@@ -274,12 +309,55 @@ decimal point — collapsing them with OpenRouter's `anthropic/claude-opus-4.8` 
 Zen's `claude-opus-4-8`. Both rewrites are deliberately scoped (the Anthropic one
 by the `claude-` prefix) so nothing else loses a dash or a numeric suffix.
 
+### Model dates
+
+`introduced` and `updated` are properties of the **model**, not of any provider's
+listing of it, so they appear only on the merged `models` entries — never on an
+offering. Scrapers still report them per provider, as the evidence `_merge_dates`
+distils:
+
+- `introduced` is the release date. A provider's `created` stamp is only the date
+  *it* began serving the model, so the vendor's is the release date itself while a
+  reseller's bounds it from above (measured across the catalog, the first-party
+  date is earlier than or equal to the resellers' in 51 of 54 cases). The vendor
+  wins where the catalog scrapes that vendor — the `_merge_capabilities` rule
+  again — else the earliest reseller date is taken as the best bound. Coverage is
+  ~97%.
+- `updated` is the date the model behind a *stable* id was last revised in place.
+  It is rare by construction: a new version normally mints a new canonical id
+  (`gemini-3.7-flash` → `gemini-3.8-flash`) and therefore a new entry rather than
+  an update, so only a provider publishing a version marker for an unchanging id
+  can fill it in. DeepSeek is currently the only one (`parse_versions` reads the
+  docs' model-version row: `deepseek-v4-flash` runs `DeepSeek-V4-Flash-0731`).
+  The build suffix carries no year, so it resolves to the most recent such
+  month/day not in the future.
+
+Two providers ship a `created` field without meaning it, and `created_date` drops
+both rather than emit a bogus date: **OpenCode Zen** stamps every model with the
+time of the request, and **Meta** returns a literal `0`. Two more are
+OpenRouter-derived yet rank first-party (`openai`, `google`), where passing
+OpenRouter's listing date along would disguise a reseller bound as the vendor's
+word: `openai` therefore takes dates from its native `/v1/models` (the one thing
+that endpoint is good for) when a key is present, and `google` — which publishes
+no native model list — reports none, falling back to the reseller bound.
+
 Arena annotation (`arena.py`) is on by default (`--no-arena` skips the fetch) and
 adds LMArena Elo/rank to each model. The
 leaderboard has no public JSON API, so the data is extracted from escaped JSON in
 the Next.js page's RSC payload; the `overall` board is the first contiguous run of
-increasing ranks. Scores join onto models by **exact** normalized name only —
-fuzzy matching is avoided so e.g. `gpt-5.5-pro` never inherits `gpt-5.5`'s Elo.
+increasing ranks. Scores join onto models by **exact** normalized name, with one
+narrow exception: the board scores reasoning-effort *variants* as their own rows
+(`claude-opus-4-8-high`, `gpt-5.6-sol-xhigh`, `gemini-3-flash (thinking-minimal)`,
+`claude-sonnet-4-5-20250929-high-32k`), which are the same model at a different
+effort rather than a different model. `_EFFORT_SUFFIX` — a **closed vocabulary**
+of effort words (`high`/`xhigh`/`max`/`medium`/`low`/`minimal`/`thinking`, plus an
+optional context qualifier and the parenthesized form), never a general suffix
+pattern — strips them so the row falls back onto the base model. An exact row
+always wins over a stripped one, so a variant only ever fills a model the board
+doesn't otherwise score; where several variants collapse onto one unscored model
+the strongest is kept. Fuzzy matching beyond that is avoided so e.g.
+`gpt-5.5-pro` never inherits `gpt-5.5`'s Elo — the list is enumerated precisely
+because `-pro` names a different model while `-high` names a knob.
 
 `anthropic` is the exception: it uses the native paginated `/v1/models` API for
 characteristics, joined to the public pricing-page HTML table (parsed with

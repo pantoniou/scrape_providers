@@ -13,6 +13,8 @@ model is still emitted without a ``pricing`` block.
 
 from __future__ import annotations
 
+from datetime import date
+
 import os
 import re
 import time
@@ -61,6 +63,8 @@ class AnthropicScraper(Scraper):
                     display_name=display_name,
                     context_window=raw.get("max_input_tokens"),
                     max_output_tokens=raw.get("max_tokens"),
+                    # First-party, so this is the model's actual release date.
+                    introduced=_created_at(raw.get("created_at")),
                     modalities=_modalities(raw.get("capabilities", {})),
                     capabilities=_capabilities(raw.get("capabilities", {})),
                     pricing=pricing_by_name.get(_norm(display_name)) if display_name else None,
@@ -185,6 +189,16 @@ def _supported(caps: dict, name: str) -> bool:
     if isinstance(entry, dict):
         return bool(entry.get("supported"))
     return bool(entry)
+
+
+def _created_at(value: str | None) -> date | None:
+    """Anthropic's ISO-8601 ``created_at`` as a date (``None`` if unparseable)."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 
 def _norm(name: str | None) -> str:

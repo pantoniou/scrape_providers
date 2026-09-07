@@ -16,7 +16,7 @@ from . import registry
 from . import schema as schema_mod
 from . import curation
 from .curation import curate
-from .emit import pruned_catalog, select_path, to_markdown, to_yaml
+from .emit import dump_yaml, pruned_catalog, select_path, to_markdown
 from .models import Provider
 
 
@@ -353,10 +353,15 @@ def main(argv: list[str] | None = None) -> int:
         # that needs no provider at all, and `providers/<name>/...` needs one.
         # `models/...` still needs every provider, since a model's entry is
         # merged from all of them.
-        head = [s for s in (args.select or "").split("/") if s][:2]
+        segments = [s for s in (args.select or "").split("/") if s]
+        head = segments[:2]
         if head[:1] == ["agents"]:
             names = []
-        elif head[:1] == ["providers"] and len(head) == 2:
+        elif head[:1] == ["providers"] and len(head) == 2 and "personas" not in segments[2:3]:
+            # ... except a provider's personas, which rank on the *merged*
+            # entries' Elo. Narrowing to the one provider would leave models it
+            # serves unscored (nothing else supplies `glm-5.3`'s rating for
+            # Fireworks' `glm-5p3`) and silently shorten every list.
             names = head[1:]
         else:
             names = registry.available()
@@ -386,18 +391,24 @@ def main(argv: list[str] | None = None) -> int:
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             arena_mod.annotate(results, arena_mod.fetch_scores(client))
 
+    # Built at most once: `build_catalog` reports scrape problems on stderr, so
+    # building it again per output mode would repeat every warning.
+    catalog = None
+    if args.validate or args.select is not None or args.format != "markdown":
+        catalog = pruned_catalog(results, include_agents=args.agents)
+
     if args.validate:
         import jsonschema
 
         try:
-            schema_mod.validate_catalog(pruned_catalog(results, include_agents=args.agents))
+            schema_mod.validate_catalog(catalog)
         except jsonschema.ValidationError as exc:
             print(f"catalog failed schema validation: {exc.message}", file=sys.stderr)
             return 1
 
     if args.select is not None:
         try:
-            selected = select_path(pruned_catalog(results, include_agents=args.agents), args.select)
+            selected = select_path(catalog, args.select)
         except KeyError as exc:
             print(exc.args[0], file=sys.stderr)
             return 1
@@ -415,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.format == "markdown":
         output = to_markdown(results, include_agents=args.agents)
     else:
-        output = to_yaml(results, include_agents=args.agents)
+        output = dump_yaml(catalog)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(output)

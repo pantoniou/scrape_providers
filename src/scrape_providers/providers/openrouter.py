@@ -23,6 +23,7 @@ from ..base import Scraper
 from ..models import Model, Pricing, Provider
 from ..oss import is_open_source
 from ..tools import endpoint_for
+from . import created_date
 
 API_URL = "https://openrouter.ai/api/v1/models"
 
@@ -59,6 +60,9 @@ def to_model(raw: dict, *, strip_prefix: bool = False) -> Model:
         modalities=list(arch.get("input_modalities") or []),
         capabilities=sorted(raw.get("supported_parameters") or []),
         open_source=is_open_source(full_id),  # detect from the prefixed id
+        # A reseller's `created` is when OpenRouter listed the model, so it
+        # bounds the release date from above; emit merges it accordingly.
+        introduced=created_date(raw),
         pricing=_pricing(raw.get("pricing")),
     )
 

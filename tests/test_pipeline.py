@@ -475,6 +475,184 @@ def test_arena_parse_overall_block_and_join():
     assert models["gpt-5.5-pro"].arena is None
 
 
+def test_arena_effort_variants_fall_back_to_base_model():
+    from scrape_providers import arena
+    from scrape_providers.models import ArenaScore, Model, Provider
+
+    scores = {
+        "gpt-5.5": ArenaScore(rank=9, elo=1477.0, votes=100),
+        "gpt-5.5-high": ArenaScore(rank=4, elo=1482.0, votes=100),
+        "claude-opus-5-high": ArenaScore(rank=1, elo=1493.0, votes=100),
+        "claude-opus-5-max": ArenaScore(rank=2, elo=1488.0, votes=100),
+        "muse-spark-1.2 (xhigh)": ArenaScore(rank=3, elo=1499.0, votes=100),
+        "gemini-3-flash (thinking-minimal)": ArenaScore(rank=8, elo=1458.0, votes=100),
+        "claude-sonnet-4-5-20250929-high-32k": ArenaScore(rank=7, elo=1460.0, votes=100),
+        "gpt-5.5-pro-high": ArenaScore(rank=5, elo=1470.0, votes=100),
+    }
+    providers = [
+        Provider(
+            name="test",
+            models=[
+                Model(id="gpt-5.5"),
+                Model(id="claude-opus-5"),
+                Model(id="muse-spark-1.2"),
+                Model(id="gemini-3-flash"),
+                Model(id="claude-sonnet-4-5"),
+                Model(id="gpt-5.5-pro"),
+                Model(id="gpt-6"),
+            ],
+        )
+    ]
+    arena.annotate(providers, scores)
+    models = {m.id: m for m in providers[0].models}
+
+    # An exact row always wins over an effort variant of the same model.
+    assert models["gpt-5.5"].arena.elo == 1477.0
+    assert models["gemini-3-flash"].arena is None or models["gemini-3-flash"].arena.elo == 1458.0
+
+    # A model the board scores only as effort variants picks up the strongest.
+    assert models["claude-opus-5"].arena.elo == 1493.0
+    # Parenthesized and context-qualified forms strip too.
+    assert models["muse-spark-1.2"].arena.elo == 1499.0
+    assert models["claude-sonnet-4-5"].arena.elo == 1460.0
+
+    # `-pro` is a different model, not an effort knob: it takes its own variant
+    # row and never gpt-5.5's.
+    assert models["gpt-5.5-pro"].arena.elo == 1470.0
+    # Nothing invented for a model the board doesn't list at all.
+    assert models["gpt-6"].arena is None
+
+
+def test_model_dates_prefer_the_vendor_over_resellers():
+    from datetime import date
+
+    from scrape_providers.emit import build_catalog
+    from scrape_providers.models import Model, Provider
+
+    providers = [
+        # A reseller listed it later than the vendor released it.
+        Provider(
+            name="openrouter",
+            models=[
+                Model(id="anthropic/claude-opus-4.8", introduced=date(2026, 5, 30)),
+                Model(id="moonshotai/kimi-k3", introduced=date(2026, 3, 9)),
+            ],
+        ),
+        Provider(
+            name="anthropic",
+            models=[Model(id="claude-opus-4-8", introduced=date(2026, 5, 28))],
+        ),
+        # Open-weight model no first-party provider in the catalog serves: the
+        # earliest reseller date is the best bound available.
+        Provider(name="fireworks", models=[Model(id="kimi-k3", introduced=date(2026, 3, 4))]),
+    ]
+    models = {m["name"]: m for m in build_catalog(providers, include_agents=False)["models"]}
+
+    # Vendor wins outright — not the earliest of the two, the vendor's.
+    assert models["claude-opus-4.8"]["introduced"] == "2026-05-28"
+    # No vendor present: earliest reseller.
+    assert models["kimi-k3"]["introduced"] == "2026-03-04"
+    # Dates are a base-model fact, so they never appear on an offering.
+    catalog = build_catalog(providers, include_agents=False)
+    for provider in catalog["providers"]:
+        for offering in provider["models"]:
+            assert "introduced" not in offering and "updated" not in offering
+
+
+def test_deepseek_version_row_gives_in_place_revision_date():
+    from datetime import date
+
+    from scrape_providers.providers.deepseek import parse_versions
+
+    html = """
+    <table>
+      <tr><th>模型</th><th>deepseek-v4-flash</th><th>deepseek-v4-pro</th>
+          <th>deepseek-v4-flash-vision-exp</th></tr>
+      <tr><td>模型版本</td><td>DeepSeek-V4-Flash-0731</td><td>DeepSeek-V4-Pro-0813</td>
+          <td>DeepSeek-V4-Flash-Vision-Exp</td></tr>
+    </table>
+    """
+    got = parse_versions(html, today=date(2026, 9, 7))
+    assert got == {
+        "deepseek-v4-flash": date(2026, 7, 31),
+        "deepseek-v4-pro": date(2026, 8, 13),
+    }
+    # A build dated after today belongs to last year, not the future.
+    assert parse_versions(html, today=date(2026, 8, 1))["deepseek-v4-pro"] == date(2025, 8, 13)
+    # No dated suffix -> no claim.
+    assert "deepseek-v4-flash-vision-exp" not in got
+
+
+def test_personas_rank_by_strength_then_cost():
+    from scrape_providers.personas import PERSONAS, build_personas
+
+    offerings = [
+        {"canonical_id": "top", "provider_model_id": "top", "pricing": {"input": 10, "output": 50}},
+        {"canonical_id": "mid", "provider_model_id": "mid", "pricing": {"input": 3, "output": 15}},
+        {
+            "canonical_id": "cheap",
+            "provider_model_id": "cheap",
+            "pricing": {"input": 1, "output": 5},
+        },
+        # Dominated: weaker than `mid` and dearer. Never worth dispatching to.
+        {"canonical_id": "dud", "provider_model_id": "dud", "pricing": {"input": 8, "output": 40}},
+        # No Elo: ranking it would mean inventing a strength.
+        {
+            "canonical_id": "unrated",
+            "provider_model_id": "unrated",
+            "pricing": {"input": 1, "output": 2},
+        },
+        # No price: the cost axis is missing.
+        {"canonical_id": "top", "provider_model_id": "unpriced", "pricing": None},
+    ]
+    strength = {"top": 1500.0, "mid": 1450.0, "cheap": 1400.0, "dud": 1420.0}
+    got = build_personas(offerings, strength)
+
+    assert list(got) == list(PERSONAS)
+    # Strength-led personas take the strongest first, cost-led ones the cheapest.
+    assert got["orchestrate"][0] == "top"
+    assert got["plan"][0] == "top"
+    assert got["summarize"][0] == "cheap"
+    assert got["explore"][0] == "cheap"
+    # Dominated and unrankable offerings never appear, under any persona.
+    for ranked in got.values():
+        assert "dud" not in ranked
+        assert "unrated" not in ranked
+        assert "unpriced" not in ranked
+    # Every surviving offering is ranked exactly once.
+    assert sorted(got["orchestrate"]) == ["cheap", "mid", "top"]
+
+
+def test_personas_use_merged_elo_and_provider_prices():
+    from scrape_providers.emit import build_catalog
+    from scrape_providers.models import ArenaScore, Model, Provider
+
+    # Only the reseller's id matches the arena board; the other provider serves
+    # the same canonical model under a mangled id and must still inherit it.
+    providers = [
+        Provider(
+            name="openrouter",
+            models=[
+                Model(id="z-ai/glm-5.3", arena=ArenaScore(rank=20, elo=1482.0), pricing=None),
+            ],
+        ),
+        Provider(
+            name="fireworks",
+            models=[
+                Model(id="accounts/fireworks/models/glm-5p3", pricing=None),
+            ],
+        ),
+    ]
+    for p in providers:
+        for m in p.models:
+            m.pricing = __import__("scrape_providers.models", fromlist=["Pricing"]).Pricing(
+                input=1.4, output=4.4
+            )
+    catalog = build_catalog(providers, include_agents=False)
+    fireworks = next(p for p in catalog["providers"] if p["name"] == "fireworks")
+    assert fireworks["personas"]["code"] == ["accounts/fireworks/models/glm-5p3"]
+
+
 def test_deepseek_native_pricing_parse():
     from scrape_providers.providers.deepseek import _parse_pricing
 
