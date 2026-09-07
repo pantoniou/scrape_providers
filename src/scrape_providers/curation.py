@@ -44,6 +44,8 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "gpt-5.6-terra-pro",
         "gpt-5.6-sol",
         "gpt-5.6-sol-pro",
+        "gpt-6-astra",
+        "gpt-6-astra-pro",
     ],
     "deepseek": [
         "deepseek-v4-pro",
