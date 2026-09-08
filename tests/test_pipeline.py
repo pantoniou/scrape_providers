@@ -594,15 +594,15 @@ def test_personas_rank_by_strength_then_cost():
             "provider_model_id": "cheap",
             "pricing": {"input": 1, "output": 5},
         },
-        # Dominated: weaker than `mid` and dearer. Never worth dispatching to.
+        # Weaker than `mid` and dearer: ranked below it, but still nameable.
         {"canonical_id": "dud", "provider_model_id": "dud", "pricing": {"input": 8, "output": 40}},
-        # No Elo: ranking it would mean inventing a strength.
+        # Nothing in its family is scored: ranks in the price-only tail.
         {
             "canonical_id": "unrated",
             "provider_model_id": "unrated",
             "pricing": {"input": 1, "output": 2},
         },
-        # No price: the cost axis is missing.
+        # No price at all: can't be placed on either axis.
         {"canonical_id": "top", "provider_model_id": "unpriced", "pricing": None},
     ]
     strength = {"top": 1500.0, "mid": 1450.0, "cheap": 1400.0, "dud": 1420.0}
@@ -614,13 +614,53 @@ def test_personas_rank_by_strength_then_cost():
     assert got["plan"][0] == "top"
     assert got["summarize"][0] == "cheap"
     assert got["explore"][0] == "cheap"
-    # Dominated and unrankable offerings never appear, under any persona.
+
     for ranked in got.values():
-        assert "dud" not in ranked
-        assert "unrated" not in ranked
+        # Everything priced is ranked, dominated or not — nothing is discarded.
+        assert set(ranked) == {"top", "mid", "cheap", "dud", "unrated"}
+        # A model whose strength is only implied ranks below every measured one.
+        assert ranked.index("unrated") == len(ranked) - 1
+        # Only the unpriceable offering is left out.
         assert "unpriced" not in ranked
-    # Every surviving offering is ranked exactly once.
-    assert sorted(got["orchestrate"]) == ["cheap", "mid", "top"]
+
+    # `dud` is dominated by `mid` (weaker and dearer), so it never outranks it.
+    assert got["orchestrate"].index("dud") > got["orchestrate"].index("mid")
+
+
+def test_personas_inherit_strength_from_the_model_a_variant_is_of():
+    from scrape_providers.personas import build_personas, resolve_strength
+
+    strength = {"muse-spark-1.2": 1499.0, "gpt-5.6-sol": 1483.0, "gpt-oss-120b": 1352.0}
+
+    # A packaging variant is the same weights at a different price, and a newer
+    # version of a scored line is at least as strong as the version it replaces.
+    assert resolve_strength("muse-spark-1.2-contributor", strength) == 1499.0
+    assert resolve_strength("muse-spark-1.3", strength) == 1499.0
+    assert resolve_strength("muse-spark-1.3-contributor", strength) == 1499.0
+    assert resolve_strength("gpt-5.6-sol-pro", strength) == 1483.0
+
+    # But a different tier of the same brand, or a different parameter count,
+    # is a different model and inherits nothing.
+    assert resolve_strength("claude-haiku-4.5", {"claude-opus-5": 1493.0}) is None
+    assert resolve_strength("gpt-oss-20b", strength) is None
+
+    # The discounted variant is the same strength and cheaper, so a cost-led
+    # persona must prefer it over the model it is a variant of.
+    offerings = [
+        {
+            "canonical_id": "muse-spark-1.2",
+            "provider_model_id": "muse-spark-1.2",
+            "pricing": {"input": 1.25, "output": 4.25},
+        },
+        {
+            "canonical_id": "muse-spark-1.2-contributor",
+            "provider_model_id": "muse-spark-1.2-contributor",
+            "pricing": {"input": 0.1, "output": 0.2},
+        },
+    ]
+    got = build_personas(offerings, strength)
+    assert got["summarize"][0] == "muse-spark-1.2-contributor"
+    assert set(got["orchestrate"]) == {"muse-spark-1.2", "muse-spark-1.2-contributor"}
 
 
 def test_personas_use_merged_elo_and_provider_prices():

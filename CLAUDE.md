@@ -103,18 +103,28 @@ output formatting, so a change in one layer doesn't ripple into the others.
   The question is "which of *this* lineup runs this step", so the answer is
   per-provider and differs per step. **Strength** is the merged entry's LMArena
   Elo — taken from `models`, not the offering, so every provider serving a scored
-  model inherits it (Fireworks' `glm-5p3` is the `glm-5.3` the board ranks); a
-  model the board doesn't score is **omitted rather than guessed at**, since the
-  only other signal is price and imputing strength from price would collapse both
-  axes into one and make the ranking circular. **Cost** is a blend of that
+  model inherits it (Fireworks' `glm-5p3` is the `glm-5.3` the board ranks).
+  Where the board scores nothing directly, `resolve_strength` works outwards from
+  real relationships rather than guessing: the Elo of the model an offering is a
+  *variant* of (`_VARIANT_SUFFIX` — `-contributor` and `:free` buy a discount on
+  identical weights, `-pro`/`-max`/`-latest` are the same weights turned up or
+  aliased), then the strongest scored member of its **family**, which for a newer
+  version of a scored line is a floor rather than a guess (no vendor ships a 1.3
+  weaker than the 1.2 it replaces). Parameter counts are protected, so
+  `gpt-oss-20b` never inherits `gpt-oss-120b`, and families are tight enough that
+  `claude-haiku-4.5` never inherits Opus. **Cost** is a blend of that
   provider's input and output prices, weighted per persona (`input_share`),
   because personas have different token shapes — a reviewer reads far more than
   it writes, a planner emits long reasoning. Each persona then scores
   `strength_weight` against cost, so `orchestrate` (0.90) takes the strongest and
   barely looks at the bill while `summarize` (0.15) takes the cheapest competent
-  model. Candidates are first reduced to the **Pareto frontier**: an offering
-  both weaker *and* dearer than another of the same provider's is dominated and
-  dropped, not ranked last. Because the Elo comes from the merged entries, a
+  model. **Every priced model is ranked**, never dropped: the question is which
+  of the lineup runs a step, so a weaker or dearer model is tiered lower and the
+  last resort stays nameable. Models whose strength is evidenced rank above those
+  where only price is known, and that tail is ordered by price alone — which,
+  used as a stand-in for both axes, means dearest first for a strength-led
+  persona and cheapest first for a cost-led one. Only an offering with no usable
+  price is left out. Because the Elo comes from the merged entries, a
   `--select providers/<name>/personas` deliberately scrapes **every** provider,
   unlike other `providers/<name>/…` paths.
 - `capabilities.py` — the controlled vocabulary for `models[].modalities` and

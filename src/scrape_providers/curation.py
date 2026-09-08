@@ -18,6 +18,7 @@ defaults. The config path is ``$SCRAPE_PROVIDERS_CURATED`` or
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import yaml
@@ -35,7 +36,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "claude-fable-5",
     ],
     "openai": [
-        "gpt-oss-20b:free",
+        "gpt-oss-20b",
         "gpt-5.4-mini",
         "gpt-5.5",
         "gpt-5.6-luna",
@@ -59,7 +60,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "accounts/fireworks/models/glm-5p3-flash",
         "accounts/fireworks/models/minimax-m3",
         "accounts/fireworks/models/deepseek-v4-pro",
-        "accounts/fireworks/models/deepseek-v4-flash",
+        "accounts/fireworks/models/deepseek-v4-flash-0731",
         "accounts/fireworks/models/qwen3p8-2p4t-a95b",
         "accounts/fireworks/models/qwen3p8-max",
         "accounts/fireworks/models/gpt-oss-120b",
@@ -75,10 +76,9 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
-        "gemini-flash-3.8",
+        "gemini-3.8-flash",
         "gemini-3.1-pro",
         "grok-4.6",
-        "hy3-free",
         "kimi-k3",
         "glm-5.2",
         "minimax-m3",
@@ -92,7 +92,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
     ],
     "google": [
         "gemini-3.1-pro-preview",
-        "gemini-flash-3.8",
+        "gemini-3.8-flash",
         "gemma-4-26b-a4b-it",
         "gemma-4-26b-a4b-it:free",
         "gemma-4-31b-it",
@@ -115,7 +115,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "deepseek/deepseek-v4-flash",
         "deepseek/deepseek-v4-pro",
         "~deepseek/deepseek-v4-flash-latest",
-        "google/gemini-flash-3.8",
+        "google/gemini-3.8-flash",
         "~google/gemini-flash-latest",
         "~google/gemini-pro-latest",
         "google/gemma-4-26b-a4b-it",
@@ -140,7 +140,7 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-terra-pro",
         "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b:free",
+        "openai/gpt-oss-20b",
         "openrouter/auto",
         "openrouter/auto-beta",
         "openrouter/bodybuilder",
@@ -149,8 +149,6 @@ DEFAULT_CURATED: dict[str, list[str]] = {
         "openrouter/pareto-code",
         "poolside/laguna-s-2.1",
         "qwen/qwen3-8b",
-        "qwen/qwen3-8-flash",
-        "qwen/qwen3-8-max",
         "tencent/hy3",
         "thinkingmachines/inkling",
         "x-ai/grok-4.6",
@@ -208,8 +206,20 @@ def curate(provider: Provider) -> Provider:
 
     Models are ordered to match the curated list. Providers with no curated
     entry are returned with an empty model list.
+
+    A curated id the provider doesn't serve is dropped, but reported on stderr:
+    silence here reads exactly like the model being absent from the catalog on
+    purpose, when the real cause is usually a typo (`gemini-flash-3.8` for
+    `gemini-3.8-flash`) or a vendor renaming an id out from under the list.
     """
     allowed = load_curated().get(provider.name, [])
     by_id = {m.id: m for m in provider.models}
+    missing = [i for i in allowed if i not in by_id]
+    if missing:
+        print(
+            f"warning: {provider.name}: {len(missing)} curated model(s) not served: "
+            f"{', '.join(missing)}",
+            file=sys.stderr,
+        )
     models = [by_id[i] for i in allowed if i in by_id]
     return provider.model_copy(update={"models": models})
