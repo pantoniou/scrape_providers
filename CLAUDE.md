@@ -124,7 +124,12 @@ output formatting, so a change in one layer doesn't ripple into the others.
   where only price is known, and that tail is ordered by price alone — which,
   used as a stand-in for both axes, means dearest first for a strength-led
   persona and cheapest first for a cost-led one. Only an offering with no usable
-  price is left out. Because the Elo comes from the merged entries, a
+  price is left out. Ties on both axes are broken by **recency** (`_recency`,
+  from the merged entry's `introduced`, itself falling back along the variant
+  chain since a `-contributor` rarely carries a date of its own): a family floor
+  is shared by every member, so a newer version and the one it replaces routinely
+  score identically at the same price, and the newer is the better default.
+  Because the Elo comes from the merged entries, a
   `--select providers/<name>/personas` deliberately scrapes **every** provider,
   unlike other `providers/<name>/…` paths.
 - `capabilities.py` — the controlled vocabulary for `models[].modalities` and

@@ -200,7 +200,7 @@
           "items": { "$ref": "#/$defs/offering" }
         },
         "personas": {
-          "description": "This provider's own models ranked for each orchestration persona, best first, by the persona's strength/cost trade-off. Values are `provider_model_id`s, so a list can be dispatched as-is. Every priced model is ranked, weakest and dearest last, so the whole lineup is tiered rather than filtered. Strength is the merged entry's LMArena Elo, or the Elo of the model an offering is a variant of (`-contributor`, `-pro`, `-latest`) or the strongest scored member of its family; models with no such evidence rank below all of them, ordered by price alone. Cost is this provider's prices, so the same model may rank differently elsewhere. Only a model with no usable price is left out.",
+          "description": "This provider's own models ranked for each orchestration persona, best first, by the persona's strength/cost trade-off. Values are `provider_model_id`s, so a list can be dispatched as-is. Every priced model is ranked, weakest and dearest last, so the whole lineup is tiered rather than filtered. Strength is the merged entry's LMArena Elo, or the Elo of the model an offering is a variant of (`-contributor`, `-pro`, `-latest`) or the strongest scored member of its family; models with no such evidence rank below all of them, ordered by price alone. Cost is this provider's prices, so the same model may rank differently elsewhere. Models tied on both axes are ordered newest first. Only a model with no usable price is left out.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

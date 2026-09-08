@@ -663,6 +663,63 @@ def test_personas_inherit_strength_from_the_model_a_variant_is_of():
     assert set(got["orchestrate"]) == {"muse-spark-1.2", "muse-spark-1.2-contributor"}
 
 
+def test_personas_break_ties_on_recency():
+    from scrape_providers.personas import build_personas
+
+    # Same family, so 1.3 inherits 1.2's Elo as a floor, and both cost the same:
+    # equal on strength and on price, which is exactly when recency should decide.
+    offerings = [
+        {
+            "canonical_id": "muse-spark-1.2",
+            "provider_model_id": "muse-spark-1.2",
+            "pricing": {"input": 1.25, "output": 4.25},
+        },
+        {
+            "canonical_id": "muse-spark-1.3",
+            "provider_model_id": "muse-spark-1.3",
+            "pricing": {"input": 1.25, "output": 4.25},
+        },
+    ]
+    strength = {"muse-spark-1.2": 1499.0}
+    released = {"muse-spark-1.2": "2026-05-14", "muse-spark-1.3": "2026-09-02"}
+
+    # Without dates the tie falls to the id, which puts the older version first.
+    assert build_personas(offerings, strength)["orchestrate"][0] == "muse-spark-1.2"
+    # With them, the newer model wins every persona.
+    got = build_personas(offerings, strength, released)
+    for ranked in got.values():
+        assert ranked[0] == "muse-spark-1.3"
+
+    # Recency never outranks a real difference on either axis: make 1.2 cheaper
+    # and a cost-led persona must take it despite being older.
+    offerings[0]["pricing"] = {"input": 0.1, "output": 0.2}
+    cheaper = build_personas(offerings, strength, released)
+    assert cheaper["summarize"][0] == "muse-spark-1.2"
+
+    # An undated model sorts after a dated one it otherwise ties with. (Rebuild
+    # the equal-price pair: the block above deliberately made 1.2 cheaper.)
+    tied = [{**offerings[0], "pricing": {"input": 1.25, "output": 4.25}}, offerings[1]]
+    partial = build_personas(tied, strength, {"muse-spark-1.3": "2026-09-02"})
+    assert partial["orchestrate"][0] == "muse-spark-1.3"
+
+    # A packaging variant rarely has a dated entry of its own, so it inherits the
+    # date of the model it is a variant of, the way it inherits that model's Elo.
+    variants = [
+        {
+            "canonical_id": "muse-spark-1.2-contributor",
+            "provider_model_id": "muse-spark-1.2-contributor",
+            "pricing": {"input": 0.1, "output": 0.2},
+        },
+        {
+            "canonical_id": "muse-spark-1.3-contributor",
+            "provider_model_id": "muse-spark-1.3-contributor",
+            "pricing": {"input": 0.1, "output": 0.2},
+        },
+    ]
+    ranked = build_personas(variants, strength, released)["orchestrate"]
+    assert ranked == ["muse-spark-1.3-contributor", "muse-spark-1.2-contributor"]
+
+
 def test_personas_use_merged_elo_and_provider_prices():
     from scrape_providers.emit import build_catalog
     from scrape_providers.models import ArenaScore, Model, Provider

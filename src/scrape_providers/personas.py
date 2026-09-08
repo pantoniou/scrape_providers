@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
 # Emission order for the personas map.
 PERSONAS = ("orchestrate", "plan", "code", "explore", "review", "summarize")
@@ -156,11 +157,37 @@ def _scale(values: list[float]) -> "callable":
     return lambda v: (v - low) / (high - low)
 
 
-def build_personas(offerings: list[dict], strength: dict[str, float]) -> dict[str, list[str]]:
+def _recency(canonical_id: str, introduced: dict[str, str]) -> float:
+    """Sort key placing the newer model first, and undated models last.
+
+    Only ever a tie-break. Strength inherited from a family is a *floor* shared
+    by every member, so a newer version and the older one it replaces can score
+    identically at the same price — and between two models that look equal on
+    both axes, the newer is the better default. Negated because the surrounding
+    sorts ascend.
+    """
+    # A packaging variant is usually too marginal to get its own catalog entry
+    # with a date, so fall back along the same chain strength uses: the release
+    # date of `muse-spark-1.3` is the release date of its `-contributor` too.
+    when = next((introduced[f] for f in _base_ids(canonical_id) if f in introduced), None)
+    if not when:
+        return 0.0  # larger than any negated ordinal, so undated sorts last
+    try:
+        return -date.fromisoformat(when).toordinal()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def build_personas(
+    offerings: list[dict],
+    strength: dict[str, float],
+    introduced: dict[str, str] | None = None,
+) -> dict[str, list[str]]:
     """``persona -> provider model ids, best first`` for one provider's lineup.
 
     ``offerings`` are the provider's catalog offerings (``canonical_id``,
-    ``provider_model_id``, ``pricing``); ``strength`` maps canonical id -> Elo.
+    ``provider_model_id``, ``pricing``); ``strength`` maps canonical id -> Elo and
+    ``introduced`` canonical id -> release date, used only to break ties.
 
     Every priced offering is ranked — a weaker or dearer model is ordered lower,
     never dropped, since "which of this lineup runs this step" wants the whole
@@ -171,26 +198,28 @@ def build_personas(offerings: list[dict], strength: dict[str, float]) -> dict[st
     for a cost-led one means cheapest first. An offering with no usable price
     can't be placed on either axis and is the only kind left out.
     """
+    introduced = introduced or {}
     resolved = [
         (
             o["provider_model_id"],
             resolve_strength(o.get("canonical_id", ""), strength),
             o.get("pricing"),
+            _recency(o.get("canonical_id", ""), introduced),
         )
         for o in offerings
     ]
     result: dict[str, list[str]] = {}
     for persona in _PROFILES:
-        scored: list[tuple[str, float, float]] = []
-        unscored: list[tuple[str, float]] = []
-        for model_id, elo, pricing in resolved:
+        scored: list[tuple[str, float, float, float]] = []
+        unscored: list[tuple[str, float, float]] = []
+        for model_id, elo, pricing, recency in resolved:
             cost = _blended_cost(pricing, persona.input_share)
             if cost is None:
                 continue
             if elo is None:
-                unscored.append((model_id, cost))
+                unscored.append((model_id, cost, recency))
             else:
-                scored.append((model_id, elo, cost))
+                scored.append((model_id, elo, cost, recency))
         if not scored and not unscored:
             continue
         weight = persona.strength_weight
@@ -208,6 +237,7 @@ def build_personas(offerings: list[dict], strength: dict[str, float]) -> dict[st
                     key=lambda c: (
                         -(weight * scale_elo(c[1]) - (1.0 - weight) * scale_cost(c[2])),
                         c[2],
+                        c[3],  # equal on both axes: prefer the newer model
                         c[0],
                     ),
                 )
@@ -222,7 +252,8 @@ def build_personas(offerings: list[dict], strength: dict[str, float]) -> dict[st
             ranked += [
                 c[0]
                 for c in sorted(
-                    unscored, key=lambda c: (-((2.0 * weight - 1.0) * scale_cost(c[1])), c[0])
+                    unscored,
+                    key=lambda c: (-((2.0 * weight - 1.0) * scale_cost(c[1])), c[2], c[0]),
                 )
             ]
         result[persona.name] = ranked
