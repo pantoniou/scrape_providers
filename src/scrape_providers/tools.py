@@ -24,8 +24,11 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": ["web_search", "file_search", "code_interpreter", "image_generation"],
         "local": ["local_shell", "computer_use", "function_calling", "mcp"],
     },
+    # Chat Completions runs web search through `web_search_options`. Only the
+    # search models accept it; the catalog records tools per endpoint, not
+    # per model.
     ("openai", "chat_completions"): {
-        "hosted": [],
+        "hosted": ["web_search"],
         "local": ["function_calling"],
     },
     ("anthropic", "messages"): {
