@@ -385,7 +385,7 @@ because `-pro` names a different model while `-high` names a knob.
 
 `anthropic` is the exception: it uses the native paginated `/v1/models` API for
 characteristics, joined to the public pricing-page HTML table (parsed with
-selectolax) on normalized display name. Pricing there is best-effort — a model
+selectolax) on normalized display name. The page (now at `platform.claude.com`) has a two-row header (group row over `Name | Input | Output | 5m writes | …`), name cells holding a link plus a caption, and tiered models spanning two rows; the parser reads the link text, strips icon glyphs, and keeps only full-width (base-tier) rows. Pricing there is best-effort — a model
 still emits without a pricing block if the page can't be parsed.
 
 When adding a provider with its own pricing API/page, prefer the native source

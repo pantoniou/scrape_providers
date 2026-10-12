@@ -127,6 +127,10 @@ _IGNORED: frozenset[str] = frozenset(
         # A wire protocol, not a model capability: the catalog records which
         # protocols a provider speaks under its `endpoints`.
         "anthropic_api",
+        "responses_api",
+        # OpenRouter's route-level server-side tool execution (hosted tools are
+        # recorded on the endpoints), not something the model itself can do.
+        "server_tools",
     }
 )
 

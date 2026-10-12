@@ -28,7 +28,7 @@ from ..tools import endpoint_for
 
 API_URL = "https://api.anthropic.com/v1/models"
 API_VERSION = "2023-06-01"
-PRICING_URL = "https://docs.claude.com/en/docs/about-claude/pricing"
+PRICING_URL = "https://platform.claude.com/docs/en/about-claude/pricing"
 
 # The pricing page can return truncated HTML; retry until the parse yields a
 # plausible number of models.
@@ -122,35 +122,73 @@ class AnthropicScraper(Scraper):
         return best
 
 
+# Private-use glyphs the docs site uses for footnote/info icons after a name.
+_ICONS = re.compile("[\ue000-\uf8ff]")
+# Pricing-table header cell -> _PRICE_COLUMNS key (the sub-header says "Input", not
+# "Base input tokens"; older layouts used the long form directly).
+_COLUMN_ALIASES = {
+    "input": "base input tokens",
+    "output": "output tokens",
+    "5m writes": "5m cache writes",
+    "1h writes": "1h cache writes",
+    "hits and refreshes": "cache hits & refreshes",
+}
+
+
+def _column_key(header: str) -> str:
+    return _COLUMN_ALIASES.get(header, header)
+
+
+def _model_name(cell) -> str:
+    """The display name of a table's first cell.
+
+    Newer rows hold a link (the name) plus a caption span describing the model, so
+    flat cell text would read "Claude Fable 5.1For demanding reasoning…".
+    """
+    link = cell.css_first("a")
+    return _ICONS.sub("", (link or cell).text(strip=True))
+
+
 def _parse_pricing_table(html: str) -> dict[str, Pricing]:
-    """Find the model pricing table and map normalized display name -> Pricing."""
+    """Find the model pricing table and map normalized display name -> Pricing.
+
+    The header is either one row ("Model | Base input tokens | …") or two (a group
+    row "Model | Base tokens | Prompt caching" over "Name | Input | Output | …").
+    Rows with fewer cells than the header are tier continuations (the base-tier
+    row carries a rowspan'd name), and are skipped: only the base tier is kept.
+    """
     tree = HTMLParser(html)
     for table in tree.css("table"):
         rows = table.css("tr")
         if not rows:
             continue
-        header = [c.text(strip=True).lower() for c in rows[0].css("th,td")]
-        if "model" not in header:
+        first = [c.text(strip=True).lower() for c in rows[0].css("th,td")]
+        if "model" not in first:
             continue
+        header_row, body = 0, rows[1:]
+        if not any(_column_key(h) in _PRICE_COLUMNS for h in first) and len(rows) > 1:
+            header_row, body = 1, rows[2:]
+        header = [_column_key(c.text(strip=True).lower()) for c in rows[header_row].css("th,td")]
         col_index = {h: i for i, h in enumerate(header)}
         if not any(c in col_index for c in _PRICE_COLUMNS):
             continue
 
         result: dict[str, Pricing] = {}
-        for row in rows[1:]:
-            cells = [c.text(strip=True) for c in row.css("th,td")]
+        for row in body:
+            cells = row.css("th,td")
             if len(cells) != len(header):
                 continue
-            name = cells[col_index["model"]]
+            name = _model_name(cells[0])
+            texts = [c.text(strip=True) for c in cells]
             fields: dict[str, float] = {}
             for column, field in _PRICE_COLUMNS.items():
                 idx = col_index.get(column)
                 if idx is None:
                     continue
-                value = _money(cells[idx])
+                value = _money(texts[idx])
                 if value is not None:
                     fields[field] = value
-            if not fields:
+            if not name or not fields:
                 continue
             extra = {k: v for k, v in fields.items() if k not in ("input", "output")}
             result.setdefault(

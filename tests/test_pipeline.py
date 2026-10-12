@@ -1198,6 +1198,31 @@ def test_fireworks_live_scrape():
     assert served and all(m.display_name for m in served)
 
 
+def test_anthropic_two_row_header_pricing_table():
+    from scrape_providers.providers.anthropic import _parse_pricing_table
+
+    html = """
+    <table>
+      <tr><th>Model</th><th>Base tokens</th><th>Prompt caching</th></tr>
+      <tr><th>Name</th><th>Input</th><th>Output</th><th>5m writes</th><th>1h writes</th>
+          <th>Hits and refreshes</th></tr>
+      <tr><td><a>Claude Fable 5.1</a><span>For demanding reasoning</span></td>
+          <td>$10/MTok</td><td>$50/ MTok</td><td>$12.50/ MTok</td><td>$20/ MTok</td>
+          <td>$0.25/ MTok</td></tr>
+      <tr><td rowspan="2"><a>Claude Haiku 5.5</a></td><td>$0.10/ MTokfor prompts up to 100K</td>
+          <td>$0.50/ MTok</td><td>$0.125/ MTok</td><td>$0.20/ MTok</td><td>$0.01/ MTok</td></tr>
+      <tr><td>$0.50/ MTokfor prompts over 100K</td><td>$2.50/ MTok</td><td>$0.625/ MTok</td>
+          <td>$1/ MTok</td><td>$0.05/ MTok</td></tr>
+      <tr><td>Claude Opus 4.1\ue0f0</td><td>$15/ MTok</td><td>$75/ MTok</td><td>$18.75/ MTok</td>
+          <td>$30/ MTok</td><td>$1.50/ MTok</td></tr>
+    </table>"""
+    table = _parse_pricing_table(html)
+    assert table["claude fable 5.1"].input == 10.0
+    assert table["claude fable 5.1"].extra["cache_read"] == 0.25
+    assert table["claude haiku 5.5"].input == 0.10  # base tier, not the >100K row
+    assert table["claude opus 4.1"].output == 75.0  # footnote glyph stripped
+
+
 def test_opencode_models_dev_entry_takes_base_tier():
     from scrape_providers.providers.opencode import _models_dev_entry
 
