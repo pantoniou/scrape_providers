@@ -1035,7 +1035,7 @@ def test_print_and_set_curated_roundtrip(tmp_path, monkeypatch, capsys):
 
     # no config yet -> prints the built-in defaults
     assert main(["--print-curated"]) == 0
-    assert "claude-opus-4-8" in capsys.readouterr().out
+    assert "claude-opus-5-5" in capsys.readouterr().out
 
     # set a custom list, then print should reflect it
     custom = tmp_path / "my.yaml"
@@ -1046,7 +1046,7 @@ def test_print_and_set_curated_roundtrip(tmp_path, monkeypatch, capsys):
     assert main(["--print-curated"]) == 0
     out = capsys.readouterr().out
     assert "claude-opus-4-8" in out
-    assert "gpt-5.5" not in out  # replaced the defaults
+    assert "claude-opus-5-5" not in out  # replaced the defaults
 
 
 def test_set_curated_rejects_bad_shape(tmp_path, monkeypatch, capsys):
