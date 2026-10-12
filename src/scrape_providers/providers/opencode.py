@@ -4,7 +4,7 @@ Zen is the sst/opencode project's own gateway: one key, one base URL, models
 from several vendors served over whichever wire protocol each model's vendor
 speaks. Two native sources:
 
-* ``GET https://opencode.ai/zen/v1/models`` (requires ``OPENCODE_API_KEY``) —
+* ``GET https://opencode.ai/zen/v1/models`` (public; ``OPENCODE_API_KEY`` is optional) —
   the ids Zen actually serves right now.
 * The Zen docs page (``opencode.ai/docs/zen``) — a models table (display name,
   model id, per-model endpoint) and a pricing table (input / output / cached
@@ -41,6 +41,8 @@ from ..tools import endpoint_for
 API_ROOT = "https://opencode.ai/zen/v1"
 MODELS_URL = f"{API_ROOT}/models"
 DOCS_URL = "https://opencode.ai/docs/zen"
+# The docs page has been removed (404); models.dev tracks Zen's prices and names.
+MODELS_DEV_URL = "https://models.dev/api.json"
 
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
 # " (<= 200K tokens)" / " (> 272K tokens)" context-tier suffix on pricing rows.
@@ -54,7 +56,9 @@ class OpenCodeScraper(Scraper):
     name = "opencode"
 
     def scrape(self) -> Provider:
-        docs = self._fetch_docs()  # model id -> {display_name, pricing}
+        docs = self._fetch_models_dev()  # model id -> {display_name, pricing}
+        for model_id, details in self._fetch_docs().items():  # legacy page, if it returns
+            docs.setdefault(model_id, {}).update(details)
         models = [
             Model(
                 id=model_id,
@@ -77,14 +81,28 @@ class OpenCodeScraper(Scraper):
         )
 
     def _fetch_model_ids(self) -> list[str]:
+        # The listing is public; a key is sent when present but a rejected one
+        # (revoked/expired) must not break an endpoint that works anonymously.
+        headers = {"Accept": "application/json"}
         key = os.environ.get("OPENCODE_API_KEY")
-        if not key:
-            raise RuntimeError("OPENCODE_API_KEY is required to scrape the OpenCode Zen models API")
-        resp = self._client.get(
-            MODELS_URL, headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}
-        )
+        resp = None
+        if key:
+            resp = self._client.get(
+                MODELS_URL, headers={**headers, "Authorization": f"Bearer {key}"}
+            )
+        if resp is None or resp.status_code in (401, 403):
+            resp = self._client.get(MODELS_URL, headers=headers)
         resp.raise_for_status()
         return [m["id"] for m in resp.json().get("data", []) if m.get("id")]
+
+    def _fetch_models_dev(self) -> dict[str, dict]:
+        try:
+            resp = self._client.get(MODELS_DEV_URL, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            entries = resp.json()["opencode"]["models"]
+        except (httpx.HTTPError, KeyError, ValueError):
+            return {}
+        return {mid: _models_dev_entry(m) for mid, m in entries.items()}
 
     def _fetch_docs(self) -> dict[str, dict]:
         try:
@@ -93,6 +111,21 @@ class OpenCodeScraper(Scraper):
         except httpx.HTTPError:
             return {}
         return _parse_docs(resp.text)
+
+
+def _models_dev_entry(model: dict) -> dict:
+    """``display_name`` + base-tier ``pricing`` from a models.dev model record."""
+    out: dict = {"display_name": model.get("name")}
+    cost = model.get("cost") or {}
+    # Top-level figures are the base (small-context) tier; ``tiers`` holds the rest.
+    if isinstance(cost.get("input"), (int, float)):
+        extra = {
+            key: cost[key]
+            for key in ("cache_read", "cache_write")
+            if isinstance(cost.get(key), (int, float))
+        }
+        out["pricing"] = Pricing(input=cost["input"], output=cost.get("output"), extra=extra)
+    return out
 
 
 def _parse_docs(html: str) -> dict[str, dict]:

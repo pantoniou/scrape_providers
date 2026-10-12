@@ -1198,6 +1198,25 @@ def test_fireworks_live_scrape():
     assert served and all(m.display_name for m in served)
 
 
+def test_opencode_models_dev_entry_takes_base_tier():
+    from scrape_providers.providers.opencode import _models_dev_entry
+
+    entry = _models_dev_entry(
+        {
+            "name": "GPT-5.4",
+            "cost": {
+                "input": 2.5,
+                "output": 15,
+                "cache_read": 0.25,
+                "tiers": [{"input": 5, "output": 22.5}],
+            },
+        }
+    )
+    assert entry["display_name"] == "GPT-5.4"
+    assert (entry["pricing"].input, entry["pricing"].output) == (2.5, 15)
+    assert entry["pricing"].extra == {"cache_read": 0.25}
+
+
 def test_opencode_live_scrape():
     if not os.environ.get("OPENCODE_API_KEY"):
         pytest.skip("OPENCODE_API_KEY not set")
