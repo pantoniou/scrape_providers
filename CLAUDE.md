@@ -284,18 +284,24 @@ page and are emitted without pricing rather than inheriting the base model's.
 Three surfaces: `chat_completions`, `responses`, and an Anthropic-format
 `messages` endpoint.
 
-`opencode` is OpenCode Zen (sst's gateway), also **fully native**
-(`OPENCODE_API_KEY`): `/zen/v1/models` gives the served ids and the docs page
-(`opencode.ai/docs/zen`) supplies a models table (display name, id, per-model
-endpoint) and a pricing table. The pricing table is keyed by display name, so it's
-joined to ids through the models table. Two wrinkles: long-context models are
-priced in `(≤ N tokens)` / `(> N tokens)` tiers and only the base tier is kept, and
-free models list `Free`, emitted as a real 0.0 rather than missing pricing. Zen
+`opencode` is OpenCode Zen (sst's gateway), **fully native** apart from pricing:
+`/zen/v1/models` gives the served ids. The listing is public; `OPENCODE_API_KEY`
+is optional and sent when present, but a rejected key (revoked/expired) gets a
+401 where the anonymous request succeeds, so the scraper retries without it on
+401/403. The `opencode.ai/docs/zen` page that used to supply the models and
+pricing tables is gone (404), so display names and pricing now come from
+**models.dev** (`api.json` → `opencode.models[*].name`/`cost`): the top-level
+`cost.input`/`output`/`cache_read`/`cache_write` are the base tier (context tiers
+live under `cost.tiers` and are ignored). The legacy docs parser (`_parse_docs`)
+is kept as a fallback in case the page returns; its long-context tiers use only
+the base row and free models list `Free`, emitted as a real 0.0. Zen
 forwards each model to its vendor, so all four protocols are listed under
 `endpoints` (`responses` for GPT, `messages` for Claude, `generate_content` for
 Gemini, plus OpenAI-compatible `chat_completions`) and vendor-dependent endpoint
-capabilities are left unstated. The docs give no context window, so Zen models
-carry one only when another provider serves the same canonical model.
+capabilities are left unstated. Zen publishes no context window, so Zen models
+carry one only when another provider serves the same canonical model. A few
+served ids (e.g. `*-backup`, new previews) may be absent from models.dev and
+emit unpriced; the unpriced-models warning surfaces them.
 
 `meta` is **fully native** (`META_API_KEY`): Meta's Model API
 (`api.meta.ai`/`dev.meta.ai`) is a separate, billed product from the
