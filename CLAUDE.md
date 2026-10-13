@@ -305,23 +305,25 @@ emit unpriced; the unpriced-models warning surfaces them.
 
 `meta` is **fully native** (`META_API_KEY`): Meta's Model API
 (`api.meta.ai`/`dev.meta.ai`) is a separate, billed product from the
-open-weight Llama releases, serving Meta's proprietary Muse Spark family
-(`muse-spark-1.1`/`1.2`/`1.3`, plus discounted `-contributor` variants). The
-`GET /v1/models` API gives served ids but no context window or modality info
-(the docs point elsewhere for that), so those — plus pricing — come from two
-docs pages fetched as their raw **Markdown source** (`<url>.md`, not rendered
-HTML — the docs site is client-rendered, and the `.md` form is far simpler and
-more stable to parse): `docs/models` (a table of context window + input
-modalities per model id) and `docs/pricing-rate-limits` (per-tier pricing,
-where each tier's section states its member model ids in a "Models: `id`,
-`id`." sentence ahead of one shared price table, rather than a price per row).
-Muse Spark's capabilities (tool calling, structured outputs, always-on
-reasoning with `reasoning_effort`, web search grounding) are fixed across every
-version and described only in prose, so they're hardcoded rather than parsed.
-Meta also serves Muse Image (image generation) and Muse Voice Transcribe
-(speech-to-text) on the same API, but neither fits this catalog's
-per-million-token chat-model shape (priced per-image / per-audio-hour), so only
-Muse Spark is scraped.
+open-weight Llama releases, serving Meta's proprietary text models: Muse Wonder
+(`muse-wonder-1.0`, the flagship) and Muse Spark (`muse-spark-1.1`/`1.2`/`1.3`,
+plus discounted `-contributor` variants). The `GET /v1/models` API gives served
+ids but no context window or modality info, so those — plus pricing — come from
+two docs pages fetched as their raw **Markdown source** (`<url>.md`, since the
+docs site is client-rendered): `docs/models` (prose: each `## Muse X` section
+says "takes text, image, … input" and "N-token context window", covering every
+version id named in backticks in it) and `docs/pricing-rate-limits` (each
+`### Muse X` section lists "Model(s): `id` … in Standard mode; `id` … in
+Contributor mode" ahead of one table with a Standard and a Contributor column;
+an id takes the column of its mode, and "Not available" cells yield no pricing).
+Both docs pages were tables until they were rewritten as prose; if models start
+emitting unpriced or without a context window again, the layout moved — the
+unpriced-models warning is the signal. Capabilities (tool calling, structured
+outputs, always-on reasoning with `reasoning_effort`, web search grounding) are
+shared by both lines and described only in prose, so they're hardcoded. Only ids
+starting `muse-spark-`/`muse-wonder-` are kept: Muse Image, Muse Voice
+Transcribe and SAM are priced per-image / per-audio-hour / per-frame, which
+doesn't fit this catalog's per-million-token shape.
 
 Two providers mangle version numbers in their ids, so `canonical.py` normalizes
 both. Fireworks writes the decimal point as `p` (`kimi-k2p6`, `glm-5p2`); a

@@ -23,7 +23,7 @@ member model ids in a "Models: `id`, `id`." sentence ahead of one shared price
 table, rather than repeating a price per row, so the ids are read out of that
 sentence and joined to the following table.
 
-Muse Spark's capabilities are fixed across every version rather than
+Muse Spark and Muse Wonder share a capability set, fixed across every version rather than
 per-model-flagged (the docs describe them in prose, not a table): tool calling,
 JSON-schema structured output, always-on reasoning with a `reasoning_effort`
 knob, and web search grounding via the Responses API's `web_search` tool.
@@ -31,7 +31,7 @@ knob, and web search grounding via the Responses API's `web_search` tool.
 Meta also ships Muse Image (image generation) and Muse Voice Transcribe
 (speech-to-text) on the same API, but neither fits this catalog's
 per-million-token chat-model shape (image is priced per image, transcription
-per audio-hour) — only the Muse Spark family is scraped here.
+per audio-hour) — only the text models (Muse Spark and Muse Wonder) are scraped here.
 """
 
 from __future__ import annotations
@@ -60,11 +60,16 @@ _MUSE_SPARK_CAPABILITIES = [
     "web_search",
 ]
 
+# The two text-model lines; both share the capability set above.
+_TEXT_MODEL_PREFIXES = ("muse-spark-", "muse-wonder-")
+
 _MODEL_ID = re.compile(r"`([a-z0-9][a-z0-9.\-]*)`")
-_CONTEXT_TOKENS = re.compile(r"([\d,]+)\s*tokens")
+_CONTEXT_TOKENS = re.compile(r"([\d,]+)-?\s*tokens?\s+context", re.IGNORECASE)
+_INPUT_SENTENCE = re.compile(r"\btakes?\s+(.+?)\s+input\b", re.IGNORECASE)
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
-_TIER_HEADER = re.compile(r"^###\s+.*\btier\b.*$", re.IGNORECASE | re.MULTILINE)
-_MODELS_LINE = re.compile(r"^Models:\s*(.+?)\.\s*$", re.MULTILINE)
+_H2 = re.compile(r"^##\s+.*$", re.MULTILINE)
+_H3 = re.compile(r"^###\s+.*$", re.MULTILINE)
+_MODELS_LINE = re.compile(r"^Models?:\s*(.+?)\s*$", re.MULTILINE)
 
 # Pricing table row label -> where it lands in Pricing.
 _FIELDS = {"input": "input", "output": "output"}
@@ -85,7 +90,7 @@ class MetaScraper(Scraper):
                 pricing=docs.get(model_id, {}).get("pricing"),
             )
             for model_id in self._fetch_model_ids()
-            if model_id.startswith("muse-spark-")
+            if model_id.startswith(_TEXT_MODEL_PREFIXES)
         ]
         return Provider(
             name=self.name,
@@ -125,57 +130,86 @@ class MetaScraper(Scraper):
 
 
 def _parse_models_table(markdown: str) -> dict[str, dict]:
-    """Read context window + input modalities off the "Available ... models" table."""
-    rows = _md_rows(
-        markdown, ("model id", "tier", "input modalities", "output modalities", "context window")
-    )
+    """Read context window + input modalities off each model line's prose section.
+
+    The Models page has one ``## Muse X`` section per line; the sentence "takes
+    text, image, ... input ... has a N-token context window" (or "All take ...")
+    covers every version named in backticks inside that section.
+    """
     out: dict[str, dict] = {}
-    for row in rows:
-        if len(row) < 5:
+    for body in _sections(markdown, _H2):
+        ids = [i for i in _MODEL_ID.findall(body) if i.startswith(_TEXT_MODEL_PREFIXES)]
+        inputs = _INPUT_SENTENCE.search(body)
+        context = _CONTEXT_TOKENS.search(body)
+        if not ids or inputs is None:
             continue
-        m = _MODEL_ID.search(row[0])
-        if m is None:
-            continue
-        modalities = [w.lower() for w in re.findall(r"[a-z]+", row[2].lower())]
-        context = _context_tokens(row[4])
-        out[m.group(1)] = {"modalities": modalities, "context_window": context}
+        modalities = [w for w in re.findall(r"[a-z]+", inputs.group(1).lower()) if w != "and"]
+        info = {
+            "modalities": modalities,
+            "context_window": int(context.group(1).replace(",", "")) if context else None,
+        }
+        for model_id in ids:
+            out[model_id] = dict(info)
     return out
 
 
 def _parse_pricing(markdown: str) -> dict[str, dict]:
-    """Join each pricing-tier section's model list to its shared price table."""
-    headers = list(_TIER_HEADER.finditer(markdown))
+    """Join each pricing section's model list to its Standard/Contributor columns.
+
+    A section states "Model(s): `a`, `b` in Standard mode; `c` in Contributor
+    mode." ahead of one table with a column per mode, so each id takes the
+    column of the mode its clause names (a ``-contributor`` id, failing that).
+    """
     out: dict[str, dict] = {}
-    for i, header in enumerate(headers):
-        end = headers[i + 1].start() if i + 1 < len(headers) else len(markdown)
-        body = markdown[header.end() : end]
-        ids_match = _MODELS_LINE.search(body)
-        if ids_match is None:
+    for body in _sections(markdown, _H3):
+        line = _MODELS_LINE.search(body)
+        if line is None:
             continue
-        model_ids = _MODEL_ID.findall(ids_match.group(1))
-        pricing = _tier_pricing(body)
-        if pricing is None:
+        columns = _tier_pricing(body)
+        if not columns:
             continue
-        for model_id in model_ids:
-            out[model_id] = {"pricing": pricing}
+        for clause in line.group(1).split(";"):
+            contributor = "contributor" in clause.lower()
+            for model_id in _MODEL_ID.findall(clause):
+                column = 1 if contributor or model_id.endswith("-contributor") else 0
+                if column < len(columns) and columns[column] is not None:
+                    out[model_id] = {"pricing": columns[column]}
     return out
 
 
-def _tier_pricing(body: str) -> Pricing | None:
-    fields: dict[str, float] = {}
-    extra: dict[str, float] = {}
-    for row in _md_rows(body, ("usage", "price")):
-        if len(row) < 2:
-            continue
-        label = row[0].strip().lower()
-        value = _money(row[1])
-        if value is None:
-            continue
-        if label in _FIELDS:
-            fields[_FIELDS[label]] = value
-        elif label in _EXTRA:
-            extra[_EXTRA[label]] = value
-    return Pricing(**fields, extra=extra) if fields else None
+def _sections(markdown: str, heading: re.Pattern[str]) -> list[str]:
+    """Bodies of the sections opened by ``heading``, each up to the next heading of that level or higher."""
+    starts = list(heading.finditer(markdown))
+    level = len(markdown[starts[0].start() :].split(None, 1)[0]) if starts else 0
+    stop = re.compile(rf"^#{{1,{level}}}\s", re.MULTILINE)
+    bodies = []
+    for m in starts:
+        nxt = stop.search(markdown, m.end())
+        bodies.append(markdown[m.end() : nxt.start() if nxt else len(markdown)])
+    return bodies
+
+
+def _tier_pricing(body: str) -> list[Pricing | None]:
+    """One Pricing per value column of the section's usage table (None where unavailable)."""
+    rows = _md_rows(body, ("usage",))
+    width = max((len(r) for r in rows), default=1) - 1
+    out: list[Pricing | None] = []
+    for col in range(1, width + 1):
+        fields: dict[str, float] = {}
+        extra: dict[str, float] = {}
+        for row in rows:
+            if col >= len(row):
+                continue
+            label = row[0].strip().lower()
+            value = _money(row[col])
+            if value is None:
+                continue
+            if label in _FIELDS:
+                fields[_FIELDS[label]] = value
+            elif label in _EXTRA:
+                extra[_EXTRA[label]] = value
+        out.append(Pricing(**fields, extra=extra) if fields else None)
+    return out
 
 
 def _md_rows(markdown: str, header_prefix: tuple[str, ...]) -> list[list[str]]:
@@ -201,11 +235,6 @@ def _cells(line: str) -> list[str]:
     if not line.startswith("|"):
         return []
     return [c.strip() for c in line.strip("|").split("|")]
-
-
-def _context_tokens(cell: str) -> int | None:
-    m = _CONTEXT_TOKENS.search(cell)
-    return int(m.group(1).replace(",", "")) if m else None
 
 
 def _money(text: str) -> float | None:

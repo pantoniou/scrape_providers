@@ -1252,55 +1252,70 @@ def test_opencode_live_scrape():
     assert len(priced) > len(provider.models) / 2  # docs cover most served ids
 
 
-def test_meta_models_table_parse():
+def test_meta_models_prose_parse():
     from scrape_providers.providers.meta import _parse_models_table
 
     markdown = """
-| Model ID | Tier | Input modalities | Output modalities | Context window |
-| :---- | :---- | :---- | :---- | :---- |
-| `muse-spark-1.3` | Standard | Text, image, video, audio\\*, PDF | Text | 1,048,576 tokens |
-| `muse-spark-1.2` | Standard | Text, image, video, audio, PDF | Text | 1,048,576 tokens |
+## Muse Wonder
+
+Muse Wonder takes text, image, video, audio, and PDF input, returns text, has a 1,048,576-token context window, and supports reasoning.
+
+| Muse Wonder (`muse-wonder-1.0`) | Available |
+
+## Muse Spark
+
+Muse Spark comes in three versions. All take text, image, and PDF input, return text, and have a 1,048,576-token context window.
+
+- **Muse Spark 1.3** (`muse-spark-1.3`): the latest.
+- **Muse Spark 1.2** (`muse-spark-1.2`): the previous.
+
+## Muse Image
+
+| Model ID | Input | Output |
+| `muse-image-1.0` | Text | Image |
 """
     docs = _parse_models_table(markdown)
-    assert docs["muse-spark-1.3"]["context_window"] == 1_048_576
-    assert docs["muse-spark-1.3"]["modalities"] == ["text", "image", "video", "audio", "pdf"]
+    assert docs["muse-wonder-1.0"]["context_window"] == 1_048_576
+    assert docs["muse-wonder-1.0"]["modalities"] == ["text", "image", "video", "audio", "pdf"]
+    assert docs["muse-spark-1.2"]["modalities"] == ["text", "image", "pdf"]
+    assert "muse-image-1.0" not in docs
 
 
-def test_meta_pricing_joins_tier_model_list_to_shared_table():
+def test_meta_pricing_picks_column_by_mode():
     from scrape_providers.providers.meta import _parse_pricing
 
     markdown = """
-### Standard tier {#standard-tier}
+### Muse Wonder
 
-Models: `muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.1`.
+Model: `muse-wonder-1.0`.
 
-| Usage | Price per 1M tokens |
-| :---- | :---- |
-| Cached input | $0.15 |
-| Input | $1.25 |
-| Output | $4.25 |
+| Usage        | Standard mode (per 1M tokens) | Contributor mode (per 1M tokens) |
+| :----------- | :---------------------------- | :------------------------------- |
+| Cached input | $0.20                         | Not available                    |
+| Input        | $4.00                         | Not available                    |
+| Output       | $20.00                        | Not available                    |
 
-### Contributor tier {#contributor-tier}
+### Muse Spark
 
-Models: `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor`.
+Models: `muse-spark-1.3`, `muse-spark-1.1` in Standard mode; `muse-spark-1.3-contributor` in Contributor mode.
 
-| Usage | Price per 1M tokens |
-| :---- | :---- |
-| Cached input | $0.002 |
-| Input | $0.10 |
-| Output | $0.20 |
+| Usage        | Standard mode (per 1M tokens) | Contributor mode (per 1M tokens) |
+| :----------- | :---------------------------- | :------------------------------- |
+| Cached input | $0.15                         | $0.002                           |
+| Input        | $1.25                         | $0.10                            |
+| Output       | $4.25                         | $0.20                            |
 
-### Muse Voice Transcribe {#muse-voice-transcribe-pricing}
+### Muse Voice Transcribe
 
 | Usage | Price |
 | :---- | :---- |
 | Audio processed | $0.18 per hour |
 """
     docs = _parse_pricing(markdown)
+    wonder = docs["muse-wonder-1.0"]["pricing"]
+    assert (wonder.input, wonder.output, wonder.extra["cache_read"]) == (4.0, 20.0, 0.20)
     assert docs["muse-spark-1.3"]["pricing"].input == 1.25
-    assert docs["muse-spark-1.3"]["pricing"].output == 4.25
-    assert docs["muse-spark-1.3"]["pricing"].extra["cache_read"] == 0.15
-    assert docs["muse-spark-1.1"]["pricing"].input == 1.25  # standard tier shared across versions
+    assert docs["muse-spark-1.1"]["pricing"].output == 4.25
     assert docs["muse-spark-1.3-contributor"]["pricing"].input == 0.10
     assert "muse-voice-transcribe-1.0" not in docs  # per-hour pricing, not per-token
 
@@ -1320,7 +1335,7 @@ def test_meta_live_scrape():
     with registry.get("meta")() as scraper:
         provider = scraper.scrape()
     assert provider.models
-    assert all(m.id.startswith("muse-spark-") for m in provider.models)
+    assert all(m.id.startswith(("muse-spark-", "muse-wonder-")) for m in provider.models)
     assert [e.protocol for e in provider.endpoints] == ["chat_completions", "responses", "messages"]
     priced = [m for m in provider.models if m.pricing]
     assert priced and all(m.context_window for m in priced)
