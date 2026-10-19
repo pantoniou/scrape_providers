@@ -107,7 +107,7 @@ ruff format .   # format
 | `anthropic` | `/v1/models` API + pricing page | requires `ANTHROPIC_API_KEY` |
 | `openrouter` | public `/api/v1/models` | no key needed; full catalog with pricing |
 | `openai` | OpenRouter (`openai/*`) + native pricing page | characteristics via OpenRouter; pricing scraped from OpenAI's docs, OpenRouter as fallback |
-| `deepseek` | native `/models` API + native pricing page | requires `DEEPSEEK_API_KEY`; cache-hit/miss pricing for all served models |
+| `deepseek` | native `/models` API + native pricing page | requires `DEEPSEEK_API_KEY`; cache-hit/miss and peak/off-peak pricing for all served models; the standalone Search & Fetch tool APIs are emitted as endpoints of their own |
 | `google` | OpenRouter (`google/*`) + native pricing page | characteristics via OpenRouter; pricing scraped from Google's docs (joined by a slug of the page's per-model heading), OpenRouter as fallback |
 | `fireworks` | native `/inference/v1/models` API + per-model pages | requires `FIREWORKS_API_KEY`; pricing scraped one served model's public page at a time |
 | `opencode` | native `/zen/v1/models` API + docs page | requires `OPENCODE_API_KEY`; docs page supplies pricing and display names |
@@ -140,9 +140,11 @@ The YAML catalog has three top-level sections:
   list of `{protocol, endpoint, tools, capabilities}` entries (a provider may
   expose its models over several protocols — `chat_completions`, `responses`, `messages`,
   `generate_content` — e.g. OpenAI via chat completions *and* responses,
-  DeepSeek via chat completions *and* an Anthropic-format messages endpoint,
-  Google via its native `generateContent` API *and* an OpenAI-compatible chat
-  completions endpoint; each endpoint splits its built-in tools
+  DeepSeek via chat completions, responses *and* an Anthropic-format messages
+  endpoint, Google via its native `generateContent` API *and* an OpenAI-compatible
+  chat completions endpoint; a protocol may instead name a standalone tool API
+  that takes no model, as DeepSeek's `search` and `fetch` endpoints do; each
+  endpoint splits its built-in tools
   into `hosted_tools` (run on the provider, e.g. `web_search`, `code_interpreter`)
   and `local_tools` (the caller executes, e.g. `local_shell`, `computer_use`)),
   while `capabilities` records provider/protocol behavior such as native shell

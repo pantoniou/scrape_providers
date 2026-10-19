@@ -12,6 +12,12 @@ where they run:
 The same model exposes different tools under different protocols (e.g. OpenAI's
 ``responses`` has ``local_shell`` while plain ``chat_completions`` does not), which
 is why tools are attached to a provider's endpoints rather than to the model.
+
+``protocol`` is normally a model wire format, but a provider may also publish a
+standalone tool API — a raw JSON endpoint an agent or RAG pipeline calls itself,
+with no model in the request. DeepSeek's Search and Fetch APIs are keyed that way
+(``search``, ``fetch``), so they appear in the catalog's ``endpoints`` list beside
+the model surfaces instead of being mistaken for a built-in chat tool.
 """
 
 from __future__ import annotations
@@ -35,13 +41,38 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": ["web_search", "code_execution"],
         "local": ["bash", "text_editor", "computer_use"],
     },
+    # Chat Completions has no server-side search: there is no
+    # `web_search_options` equivalent, and the docs' feature table lists none.
     ("deepseek", "chat_completions"): {
         "hosted": [],
         "local": ["function_calling"],
     },
-    ("deepseek", "messages"): {
-        "hosted": [],
+    # The Responses API accepts one built-in tool, `web_search`: the provider
+    # runs the search, adds the results to the context and continues the
+    # response. It is `deepseek-v4-pro` only (`deepseek-flash` ignores it) — but
+    # the catalog records tools per endpoint, not per model, as with OpenAI's
+    # search models.
+    ("deepseek", "responses"): {
+        "hosted": ["web_search"],
         "local": ["function_calling"],
+    },
+    # The Anthropic-format surface accepts Anthropic's server-side web search:
+    # both `server_tool_use` input items and `web_search_tool_result` content
+    # blocks are supported.
+    ("deepseek", "messages"): {
+        "hosted": ["web_search"],
+        "local": ["function_calling"],
+    },
+    # DeepSeek's own Search & Fetch APIs: plain JSON, billed per successful
+    # request rather than per token, and usable with any model (or none). They
+    # are what the harness integrations call server-side.
+    ("deepseek", "search"): {
+        "hosted": ["web_search"],
+        "local": [],
+    },
+    ("deepseek", "fetch"): {
+        "hosted": ["web_fetch"],
+        "local": [],
     },
     ("fireworks", "chat_completions"): {
         "hosted": [],
@@ -207,6 +238,29 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "system_prompt_supported": True,
         "developer_role_supported": False,
         "automatic_prompt_caching_supported": True,
+    },
+    # The Responses API is explicitly stateless: no stored responses, no
+    # `previous_response_id`, no conversations. `parallel_tool_calls` and
+    # `store` are ignored (always on / always false), `text.format` is fully
+    # supported, `reasoning.effort` is honoured, `developer` messages are
+    # accepted (treated as `user`), and caching is automatic — which is why
+    # `prompt_cache_key` is not supported.
+    ("deepseek", "responses"): {
+        "streaming_supported": True,
+        "function_calling_supported": True,
+        "parallel_tool_calls_supported": True,
+        "tool_choice_supported": True,
+        "strict_json_schema_supported": True,
+        "shell_tool_supported": False,
+        "mcp_supported": False,
+        "server_side_conversation_state_supported": False,
+        "previous_response_id_supported": False,
+        "response_lifecycle_supported": False,
+        "system_prompt_supported": True,
+        "developer_role_supported": True,
+        "automatic_prompt_caching_supported": True,
+        "reasoning_controls_supported": True,
+        "response_compaction_supported": False,
     },
     ("deepseek", "messages"): {
         "streaming_supported": True,

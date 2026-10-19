@@ -775,6 +775,83 @@ def test_deepseek_native_pricing_parse():
     assert "json_output" in flash["capabilities"]
 
 
+def test_deepseek_pricing_takes_the_peak_tier():
+    from scrape_providers.providers.deepseek import _parse_pricing
+
+    # The page splits every price over OFF-PEAK / PEAK sub-rows beneath the row
+    # that names it, off-peak being half the peak rate. Only the standard (peak)
+    # rate belongs in the catalog: off-peak is a discount for scheduling around
+    # the peak window.
+    html = """
+    <table>
+      <tr><th>MODEL</th><td>deepseek-flash</td><td>deepseek-v4-pro</td></tr>
+      <tr><td>PRICING(2)</td><td>1M INPUT TOKENS(CACHE HIT)</td><td>OFF-PEAK</td>
+          <td>$0.003</td><td>$0.022</td></tr>
+      <tr><td>PEAK</td><td>$0.006</td><td>$0.044</td></tr>
+      <tr><td>1M INPUT TOKENS(CACHE MISS)</td><td>OFF-PEAK</td>
+          <td>$0.15</td><td>$0.66</td></tr>
+      <tr><td>PEAK</td><td>$0.3</td><td>$1.32</td></tr>
+      <tr><td>1M OUTPUT TOKENS</td><td>OFF-PEAK</td><td>$0.6</td><td>$1.98</td></tr>
+      <tr><td>PEAK</td><td>$1.2</td><td>$3.96</td></tr>
+    </table>
+    """
+    details = _parse_pricing(html)
+    flash = details["deepseek-flash"]["pricing"]
+    assert flash.input == 0.3  # cache-miss, peak
+    assert flash.output == 1.2
+    assert flash.extra["cache_read"] == 0.006  # cache-hit, peak
+    assert details["deepseek-v4-pro"]["pricing"].input == 1.32
+    assert details["deepseek-v4-pro"]["pricing"].output == 3.96
+
+
+def test_deepseek_web_search_is_a_capability_of_v4_pro_only():
+    from scrape_providers.providers.deepseek import _build_models
+
+    # The Responses API runs `web_search` server-side, but ignores it for
+    # deepseek-flash; the standalone Search API is not a model capability at all
+    # (it lives on the endpoints — see the surfaces test below).
+    models = {m.id: m for m in _build_models(["deepseek-flash", "deepseek-v4-pro"], {}, {})}
+    assert "web_search" in models["deepseek-v4-pro"].capabilities
+    assert "web_search" not in models["deepseek-flash"].capabilities
+
+
+def test_deepseek_web_search_and_web_fetch_are_distinct_surfaces():
+    from scrape_providers.tools import endpoint_for
+
+    # Model surfaces: the Responses built-in tool (v4-pro only) and Anthropic's
+    # server-side tool on the messages surface. Chat Completions has neither.
+    assert endpoint_for("deepseek", "responses", "/responses").hosted_tools == ["web_search"]
+    assert endpoint_for("deepseek", "messages", "/x").hosted_tools == ["web_search"]
+    assert endpoint_for("deepseek", "chat_completions", "/chat/completions").hosted_tools == []
+    # The standalone Search & Fetch APIs take no model in the request and are
+    # billed per call, so they are endpoints of their own.
+    search = endpoint_for("deepseek", "search", "/v1/tools/search")
+    fetch = endpoint_for("deepseek", "fetch", "/v1/tools/fetch")
+    assert search.hosted_tools == ["web_search"]
+    assert fetch.hosted_tools == ["web_fetch"]
+    assert not search.local_tools and not fetch.local_tools
+
+
+def test_deepseek_tool_api_endpoints_are_schema_valid():
+    from scrape_providers.emit import pruned_catalog
+    from scrape_providers.models import Model, Provider
+    from scrape_providers.schema import validate_catalog
+    from scrape_providers.tools import endpoint_for
+
+    # `search` and `fetch` are protocols of their own; the schema's enum has to
+    # admit them or every catalog carrying a DeepSeek endpoint fails to validate.
+    provider = Provider(
+        name="deepseek",
+        root_url="https://api.deepseek.com",
+        endpoints=[
+            endpoint_for("deepseek", "search", "/v1/tools/search"),
+            endpoint_for("deepseek", "fetch", "/v1/tools/fetch"),
+        ],
+        models=[Model(id="deepseek-v4-pro", pricing=Pricing(input=1.32, output=3.96))],
+    )
+    validate_catalog(pruned_catalog([provider], include_agents=False))
+
+
 def test_catalog_validates_against_schema():
     import jsonschema
     from datetime import date

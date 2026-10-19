@@ -162,13 +162,17 @@ output formatting, so a change in one layer doesn't ripple into the others.
   providers collapses into one `models` entry.
 - `tools.py` — curated map of built-in tools and behavioral capabilities per
   `(provider, protocol)`, with tools split into `hosted` (run on the provider:
-  web_search, code_interpreter, …) and `local` (the caller executes:
+  web_search, web_fetch, code_interpreter, …) and `local` (the caller executes:
   `local_shell`/bash, computer_use, function_calling, …). No provider API
   enumerates all of these, so they're hand-maintained and attached to the
   provider's endpoints (the same model exposes different behavior and tools
   under different protocols). Scrapers build each surface via
   `endpoint_for(provider, protocol, path)`, which populates
-  `Endpoint.hosted_tools`, `local_tools`, and `capabilities`.
+  `Endpoint.hosted_tools`, `local_tools`, and `capabilities`. A protocol is
+  usually a model wire format, but it can also name a standalone tool API: the
+  keys `("deepseek", "search")` and `("deepseek", "fetch")` describe raw JSON
+  endpoints that take no model in the request, so a provider's own search/fetch
+  service is recorded as a surface instead of being misreported as a chat tool.
 - `agent_profiles.py` — curated tool/function sets of well-known agent harnesses
   (Codex: shell/apply_patch/update_plan; Claude Code: Bash/Read/Edit/…). These are
   harness-level and model-agnostic (any function-calling model can be driven by
@@ -244,17 +248,33 @@ served ids and the docs pricing page (a transposed table parsed in
 `providers/deepseek.py`) gives cache-hit/miss input, output, context, and max
 output for every model. DeepSeek caching is automatic, so `cache_read` pricing is
 available for all its models — the reason to scrape it directly rather than rely
-on OpenRouter's spotty per-host cache figures. **Currently DeepSeek emits no
-pricing at all**: as of 2026-09-07 the English pricing page's content is missing
-upstream (still canonical in their sitemap and still routed by their JS bundle,
-but the chunk isn't deployed, and their server returns the SPA index for missing
-paths instead of a 404 — hence a useless HTTP 200). The only live page is the
-`zh-cn` locale, in CNY and now peak/off-peak tiered; converting it would make the
-catalog's USD figures FX-derived, so this is deliberately left unfixed and
-surfaced by the unpriced-models warning instead. If the page returns, take the
-**peak (standard)** tier, as the Google scraper does with Standard. Note this exposes only the models
-DeepSeek itself serves (currently 2), not the third-party-hosted `deepseek/*`
-variants on OpenRouter.
+on OpenRouter's spotty per-host cache figures. The English page went missing
+upstream for a while (as of 2026-09-07 their server returned the SPA index for a
+missing path — a useless HTTP 200 — so `_parse_pricing` found no `MODEL` table
+and the unpriced-models warning carried the signal); it is back, and every price
+is now split over an **OFF-PEAK / PEAK** pair of rows beneath the row that names
+it. Only the **peak (standard)** rate is taken, as the Google scraper keeps
+Standard and drops Batch/Flex/Priority: off-peak is half price for scheduling
+around the peak window, not the rate you normally pay. The `zh-cn` locale is used
+only for the model-version row — it is priced in CNY, which would make the
+catalog's USD figures FX-derived. This exposes only the models DeepSeek itself
+serves (currently 2), not the third-party-hosted `deepseek/*` variants on
+OpenRouter.
+
+DeepSeek now publishes two kinds of web tool, and they are not the same thing.
+The **model surfaces** carry a hosted `web_search`: the Responses API accepts the
+built-in tool (the provider searches, adds the results to the context and
+continues the response) but ignores it for `deepseek-flash`, so `web_search` is a
+capability of `deepseek-v4-pro` alone, while the Anthropic-format `messages`
+surface accepts Anthropic's server-side tool (`server_tool_use` /
+`web_search_tool_result`). DeepSeek also ships **standalone Search and Fetch
+APIs** (`POST /v1/tools/search`, `POST /v1/tools/fetch`): raw JSON, no model in
+the request, billed per successful call ($0.75/1,000) rather than per token,
+which is what the harness integrations call server-side. They are emitted as
+endpoints of their own under the protocols `search` and `fetch` (the schema's
+protocol enum, keyed in `tools.py`), with `web_search` and `web_fetch` as their
+hosted tools — *not* as a built-in chat tool, since Chat Completions cannot run
+one.
 
 `google` follows the `openai` pattern (no key needed): OpenRouter's `google/*`
 entries give the served ids and characteristics, and pricing is scraped
@@ -268,6 +288,9 @@ table is used; Batch/Flex/Priority are discounted/premium variants of the same
 figures. Google exposes two real surfaces — the native `generateContent` REST
 API and an OpenAI-compatible `chat/completions` endpoint — both listed under
 `endpoints`; `generate_content` was added to the protocol enum for the former.
+The enum also carries `search` and `fetch` for DeepSeek's standalone tool APIs,
+which are surfaces of the provider rather than wire formats a model is served
+over.
 
 `fireworks` is **fully native** (`FIREWORKS_API_KEY`): the OpenAI-compatible
 `/inference/v1/models` API gives the served ids plus context length and
@@ -354,7 +377,7 @@ distils:
   (`gemini-3.7-flash` → `gemini-3.8-flash`) and therefore a new entry rather than
   an update, so only a provider publishing a version marker for an unchanging id
   can fill it in. DeepSeek is currently the only one (`parse_versions` reads the
-  docs' model-version row: `deepseek-v4-flash` runs `DeepSeek-V4-Flash-0731`).
+  docs' model-version row: `deepseek-flash` runs `DeepSeek-V4.1-Flash-1017`).
   The build suffix carries no year, so it resolves to the most recent such
   month/day not in the future.
 

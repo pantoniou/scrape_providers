@@ -109,11 +109,15 @@ class Endpoint(BaseModel):
     """One API surface a provider exposes: a wire protocol and its request path.
 
     A provider may offer the same models over several protocols (e.g. OpenAI via
-    both ``chat_completions`` and ``responses``; DeepSeek via ``chat_completions``
-    and an Anthropic-format ``messages`` endpoint).
+    both ``chat_completions`` and ``responses``; DeepSeek via ``chat_completions``,
+    ``responses`` and an Anthropic-format ``messages`` endpoint). A surface can
+    also take no model at all: DeepSeek's ``search``/``fetch`` endpoints are raw
+    JSON tool APIs, billed per request rather than per token.
     """
 
-    protocol: str  # "chat_completions", "responses", or "messages"
+    # A model wire format (see the schema's protocol enum) or a standalone tool
+    # API that takes no model in the request (DeepSeek's "search"/"fetch").
+    protocol: str
     endpoint: str  # path relative to the provider root_url
     # Built-in tools this surface exposes, split by execution site (see tools.py):
     # hosted = run on the provider; local = the caller executes (bash, etc.).

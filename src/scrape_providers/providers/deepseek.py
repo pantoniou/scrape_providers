@@ -6,31 +6,42 @@ Two native sources:
   authoritative list of model ids DeepSeek actually serves.
 * The docs pricing page (``api-docs.deepseek.com``) — a transposed table (models
   as columns) giving cache-hit / cache-miss input pricing, output pricing,
-  context length, and max output for every served model.
+  context length, max output, the model version, and the feature rows.
 
 DeepSeek caching is automatic, so cache-hit (``cache_read``) pricing is published
 for all their models; this is why we scrape DeepSeek directly rather than relying
 on OpenRouter's spotty per-host cache figures.
 
-Known upstream breakage (checked 2026-09-07): the **English** pricing page is
-gone, so DeepSeek currently emits with no pricing at all. It has not moved —
-``/quick_start/pricing`` is still canonical in their ``sitemap.xml`` and the
-English JS bundle still routes it to ``@site/docs/quick_start/pricing.mdx``
-(chunk ``2415``) — but that chunk is not deployed, and their server answers any
-missing path with the SPA index instead of a 404. That is why the fetch returns
-HTTP 200 and ``_parse_pricing`` finds no ``MODEL`` table; the resulting empty
-dict is reported by ``build_catalog``'s unpriced-models warning.
+Prices are tiered: each figure is split over an OFF-PEAK and a PEAK row, off-peak
+being half the peak rate. The catalog takes the **peak (standard)** rate — what
+you pay unless you deliberately schedule around the peak window (01:00-04:00 and
+06:00-10:00 UTC on Chinese working days) — matching how the Google scraper keeps
+Standard and drops Batch/Flex/Priority.
 
-Deliberately **not** worked around. The only live page is the ``zh-cn`` locale,
-which is priced in CNY and has since moved to peak / off-peak tiers; converting
-it would make the catalog's USD figures FX-derived and drifting, and emitting CNY
-would break the "normalized to USD per million tokens" invariant. Priceless plus
-a warning is the honest state until the English page returns.
+The English page was missing upstream for a while (checked 2026-09-07: their
+server answers a missing path with the SPA index, so the fetch was a useless HTTP
+200 and ``_parse_pricing`` found no ``MODEL`` table; ``build_catalog``'s
+unpriced-models warning was the signal). It is back, with the tier rows above.
+The ``zh-cn`` locale is used *only* for the model-version row (see
+``_fetch_versions``) — it is priced in CNY, which would make the catalog's USD
+figures FX-derived.
 
-When it does: prices are expected to be tiered, and the catalog takes the
-**peak (standard)** rate — the price you pay unless you deliberately schedule
-around it, matching how the Google scraper keeps Standard and drops
-Batch/Flex/Priority.
+Web search and web fetch are two different things here, and only one of them is a
+model capability:
+
+* Model surfaces. The Responses API accepts the built-in ``web_search`` tool (the
+  provider searches, adds the results to the context and continues the
+  response), and only ``deepseek-v4-pro`` takes it — ``deepseek-flash`` ignores
+  it. The Anthropic-format ``messages`` surface accepts Anthropic's server-side
+  web search (``server_tool_use`` and ``web_search_tool_result`` are both
+  supported). Those live on the endpoints in ``tools.py``, and ``web_search`` is
+  a capability of the model that honours it.
+* The standalone Search and Fetch APIs (``POST /v1/tools/search``,
+  ``POST /v1/tools/fetch``): plain JSON, independent of any model and billed per
+  successful request ($0.75 / 1,000) rather than per token. They are what the
+  agent-harness integrations call server-side, so they are emitted as their own
+  endpoints — protocols ``search`` and ``fetch`` — instead of being mistaken for
+  a built-in chat tool.
 """
 
 from __future__ import annotations
@@ -60,6 +71,14 @@ _VERSION_ROW = "版本"
 _BUILD_DATE = re.compile(r"-(\d{2})(\d{2})$")
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
 _FOOTNOTE = re.compile(r"\(.*?\)|\s+")  # strip "(1)" footnotes / whitespace from ids
+# Price tiers, as their own rows under a price row (see `_parse_pricing`). The
+# peak rate is the standard one; off-peak is a discount for scheduling around it.
+_TIERS = ("PEAK", "OFF-PEAK")
+_STANDARD_TIER = "PEAK"
+# The Responses API's built-in `web_search` tool is taken by one model only:
+# "Ignored with deepseek-flash" (see the Models & Pricing feature table, which
+# lists no search row, and the Responses API guide's Tools table).
+_WEB_SEARCH_MODELS = frozenset({"deepseek-v4-pro"})
 
 
 class DeepSeekScraper(Scraper):
@@ -68,29 +87,21 @@ class DeepSeekScraper(Scraper):
     def scrape(self) -> Provider:
         details = self._fetch_pricing()  # id -> parsed characteristics + pricing
         versions = self._fetch_versions()  # id -> in-place revision date
-        models: list[Model] = []
-        for model_id in self._fetch_model_ids():
-            d = details.get(model_id, {})
-            models.append(
-                Model(
-                    id=model_id,
-                    display_name=d.get("display_name"),
-                    context_window=d.get("context_window"),
-                    max_output_tokens=d.get("max_output_tokens"),
-                    modalities=["text"],
-                    capabilities=d.get("capabilities", []),
-                    open_source=True,
-                    updated=versions.get(model_id),
-                    pricing=d.get("pricing"),
-                )
-            )
+        models = _build_models(self._fetch_model_ids(), details, versions)
         return Provider(
             name=self.name,
             root_url="https://api.deepseek.com",
             endpoints=[
                 endpoint_for(self.name, "chat_completions", "/chat/completions"),
+                # The Responses API, in the OpenAI Responses format (stateless).
+                endpoint_for(self.name, "responses", "/responses"),
                 # DeepSeek also exposes an Anthropic-format (Messages API) surface.
                 endpoint_for(self.name, "messages", "/anthropic/v1/messages"),
+                # The standalone Search & Fetch APIs: raw JSON, no model in the
+                # request. Priced per request rather than per token, so they are
+                # endpoints of their own (see tools.py).
+                endpoint_for(self.name, "search", "/v1/tools/search"),
+                endpoint_for(self.name, "fetch", "/v1/tools/fetch"),
             ],
             models=models,
         )
@@ -121,6 +132,35 @@ class DeepSeekScraper(Scraper):
         except httpx.HTTPError:
             return {}
         return _parse_pricing(resp.text)
+
+
+def _build_models(
+    model_ids: list[str], details: dict[str, dict], versions: dict[str, date]
+) -> list[Model]:
+    """Join the served ids to the pricing page's view of them."""
+    models: list[Model] = []
+    for model_id in model_ids:
+        d = details.get(model_id, {})
+        capabilities = list(d.get("capabilities", []))
+        if model_id in _WEB_SEARCH_MODELS:
+            # Its endpoint carries the tool (tools.py); naming it here makes it
+            # a capability of the model, which is what the merged catalog entry
+            # publishes.
+            capabilities.append("web_search")
+        models.append(
+            Model(
+                id=model_id,
+                display_name=d.get("display_name"),
+                context_window=d.get("context_window"),
+                max_output_tokens=d.get("max_output_tokens"),
+                modalities=["text"],
+                capabilities=capabilities,
+                open_source=True,
+                updated=versions.get(model_id),
+                pricing=d.get("pricing"),
+            )
+        )
+    return models
 
 
 def parse_versions(html: str, today: date | None = None) -> dict[str, date]:
@@ -166,7 +206,12 @@ def parse_versions(html: str, today: date | None = None) -> dict[str, date]:
 
 
 def _parse_pricing(html: str) -> dict[str, dict]:
-    """Parse the transposed pricing table into ``model id -> details`` dict."""
+    """Parse the transposed pricing table into ``model id -> details`` dict.
+
+    Each price is split over an ``OFF-PEAK`` and a ``PEAK`` row beneath the row
+    that names it (``1M OUTPUT TOKENS`` and so on). Only the peak (standard) rate
+    is taken; see the module docstring.
+    """
     tree = HTMLParser(html)
     table = tree.css_first("table")
     if table is None:
@@ -183,11 +228,22 @@ def _parse_pricing(html: str) -> dict[str, dict]:
     outputs: list[float | None] = [None] * n
     cache: list[float | None] = [None] * n
 
+    section = ""  # the price row a tier sub-row prices
     for row in rows[1:]:
         label, values = _label_values(row, n)
         if values is None:
             continue
-        up = label.upper()
+        up = label.upper().strip()
+        tier = ""
+        if up in _TIERS:  # a sub-row: PEAK / OFF-PEAK beneath the row it prices
+            up, tier = section, up
+        else:
+            head, _, tail = up.rpartition(" ")
+            if tail in _TIERS:  # a price row that names its own tier
+                up, tier = head, tail
+            section = up
+        if tier and tier != _STANDARD_TIER:
+            continue  # a discounted tier, not the rate you normally pay
         if "CACHE HIT" in up:
             cache = [_money(v) for v in values]
         elif "CACHE MISS" in up or (up.startswith("1M INPUT") and "CACHE" not in up):
