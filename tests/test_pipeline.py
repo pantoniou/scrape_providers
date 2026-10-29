@@ -142,6 +142,27 @@ def test_endpoint_tools_split_hosted_local():
     assert "local_shell" not in endpoint["hosted_tools"]
 
 
+def test_hosted_tool_types_name_a_nonstandard_declaration():
+    from scrape_providers.emit import pruned_catalog
+    from scrape_providers.tools import endpoint_for
+
+    provider = Provider(
+        name="comparison",
+        endpoints=[
+            endpoint_for("openrouter", "chat_completions", "/api/v1/chat/completions"),
+            endpoint_for("openrouter", "responses", "/api/v1/responses"),
+            endpoint_for("openai", "chat_completions", "/v1/chat/completions"),
+        ],
+        models=[Model(id="gpt-5.5")],
+    )
+    endpoints = pruned_catalog([provider])["providers"][0]["endpoints"]
+    # OpenRouter declares its search as a tool of its own type on both protocols.
+    for endpoint in endpoints[:2]:
+        assert endpoint["hosted_tool_types"] == {"web_search": "openrouter:web_search"}
+    # A standard declaration names no type, and the empty mapping is pruned.
+    assert "hosted_tool_types" not in endpoints[2]
+
+
 def test_endpoint_capabilities_are_provider_protocol_behavior():
     from scrape_providers.emit import build_catalog
     from scrape_providers.tools import endpoint_for

@@ -122,10 +122,12 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
     },
     ("openrouter", "chat_completions"): {
         "hosted": ["web_search"],
+        "hosted_types": {"web_search": "openrouter:web_search"},
         "local": ["function_calling"],
     },
     ("openrouter", "responses"): {
         "hosted": ["web_search"],
+        "hosted_types": {"web_search": "openrouter:web_search"},
         "local": ["function_calling", "mcp"],
     },
     ("google", "generate_content"): {
@@ -432,6 +434,7 @@ def endpoint_for(provider: str, protocol: str, path: str) -> Endpoint:
         protocol=protocol,
         endpoint=path,
         hosted_tools=list(entry.get("hosted", [])),
+        hosted_tool_types=dict(entry.get("hosted_types", {})),
         local_tools=list(entry.get("local", [])),
         capabilities=EndpointCapabilities(**capabilities),
     )

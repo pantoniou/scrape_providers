@@ -122,6 +122,9 @@ class Endpoint(BaseModel):
     # Built-in tools this surface exposes, split by execution site (see tools.py):
     # hosted = run on the provider; local = the caller executes (bash, etc.).
     hosted_tools: list[str] = Field(default_factory=list)
+    # The tool type the surface declares a hosted tool with, by tool name, where
+    # the protocol has no standard type for it (OpenRouter's web search).
+    hosted_tool_types: dict[str, str] = Field(default_factory=dict)
     local_tools: list[str] = Field(default_factory=list)
     # Provider/protocol behavior, separate from intrinsic model capabilities.
     capabilities: EndpointCapabilities = Field(default_factory=EndpointCapabilities)
