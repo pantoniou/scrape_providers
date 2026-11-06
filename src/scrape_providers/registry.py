@@ -8,6 +8,7 @@ from .providers.deepseek import DeepSeekScraper
 from .providers.fireworks import FireworksScraper
 from .providers.google import GoogleScraper
 from .providers.meta import MetaScraper
+from .providers.nvidia import NvidiaScraper
 from .providers.openai import OpenAIScraper
 from .providers.opencode import OpenCodeScraper
 from .providers.openrouter import OpenRouterScraper
@@ -18,6 +19,7 @@ _SCRAPERS: dict[str, type[Scraper]] = {
     FireworksScraper.name: FireworksScraper,
     GoogleScraper.name: GoogleScraper,
     MetaScraper.name: MetaScraper,
+    NvidiaScraper.name: NvidiaScraper,
     OpenAIScraper.name: OpenAIScraper,
     OpenCodeScraper.name: OpenCodeScraper,
     OpenRouterScraper.name: OpenRouterScraper,

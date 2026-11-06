@@ -90,7 +90,7 @@ def _union(first: list[str], second: list[str]) -> list[str]:
 # Fireworks republishes the model card's name, Zen uses a plain name too, while
 # OpenRouter prefixes a vendor label ("MoonshotAI: Kimi K3") that the vendor
 # doesn't use, so it ranks last.
-_RESELLER_RANK = {"fireworks": 1, "opencode": 2, "openrouter": 3}
+_RESELLER_RANK = {"fireworks": 1, "nvidia": 2, "opencode": 3, "openrouter": 4}
 # Fields with no "strongest claim" to take, so the nearest provider wins instead.
 _VENDOR_FIELDS = ("display_name", "arena")
 # Parameter-count monikers, the only thing telling some models apart (gpt-oss-20b

@@ -26,7 +26,7 @@ ruff check . && ruff format .    # lint + format
 
 Keys are read from the environment. They live in `~/work/fyai/providers.env`
 (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`,
-`FIREWORKS_API_KEY`, `OPENCODE_API_KEY`, `META_API_KEY`):
+`FIREWORKS_API_KEY`, `OPENCODE_API_KEY`, `META_API_KEY`, `NVIDIA_API_KEY`):
 
 ```bash
 set -a; . ~/work/fyai/providers.env; set +a
@@ -347,6 +347,19 @@ shared by both lines and described only in prose, so they're hardcoded. Only ids
 starting `muse-spark-`/`muse-wonder-` are kept: Muse Image, Muse Voice
 Transcribe and SAM are priced per-image / per-audio-hour / per-frame, which
 doesn't fit this catalog's per-million-token shape.
+
+`nvidia` is NVIDIA Build (`integrate.api.nvidia.com/v1`, OpenAI-compatible,
+`NVIDIA_API_KEY` optional — the model listing is public and a rejected key is
+retried anonymously). `/v1/models` gives only ids (its `created` is a constant,
+ignored); display name, limits, modalities, capabilities, open-weights flag and
+release date come from **models.dev** (`nvidia.models`), which covers only ~25 of
+~84 served ids. The hosted catalog is free for prototyping, so every model is
+priced 0.0, including ids models.dev lacks. Image/video/speech/transcription
+models are dropped (not per-token). The build.nvidia.com/models site lists more
+than `/v1/models` serves: some entries (e.g. `kimi-k3.1-pro`, Nov 2026) are
+preview/playground-only, "not open for programmatic access", and the gateway
+404s them for every key. `/v1/models` is the callable truth, so the site is
+deliberately not scraped.
 
 Two providers mangle version numbers in their ids, so `canonical.py` normalizes
 both. Fireworks writes the decimal point as `p` (`kimi-k2p6`, `glm-5p2`); a

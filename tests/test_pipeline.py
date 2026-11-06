@@ -1805,3 +1805,29 @@ def test_schema_enums_match_the_vocabulary():
     personas = schema_mod.load_schema()["$defs"]["provider"]["properties"]["personas"]
     assert tuple(personas["properties"]) == PERSONAS
     assert personas["additionalProperties"] is False
+
+
+def test_nvidia_model_normalization():
+    from scrape_providers.providers.nvidia import _model
+
+    m = _model(
+        "deepseek-ai/deepseek-v4.1-flash",
+        {
+            "name": "DeepSeek V4.1 Flash",
+            "tool_call": True,
+            "reasoning": True,
+            "structured_output": True,
+            "open_weights": True,
+            "release_date": "2026-09-10",
+            "modalities": {"input": ["text", "image"], "output": ["text"]},
+            "limit": {"context": 1000000, "output": 384000},
+            "cost": {"input": 0, "output": 0},
+        },
+    )
+    assert m.context_window == 1000000 and m.open_source
+    assert m.modalities == ["text", "image"]
+    assert m.capabilities == ["function_calling", "structured_outputs", "reasoning"]
+    assert m.pricing.input == 0 and m.introduced.isoformat() == "2026-09-10"
+    # ids models.dev doesn't know are emitted without metadata but still free
+    bare = _model("acme/new-model", {})
+    assert bare.pricing.input == 0 and bare.modalities == ["text"]

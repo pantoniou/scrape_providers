@@ -86,6 +86,10 @@ TOOLS: dict[tuple[str, str], dict[str, list[str]]] = {
         "hosted": [],
         "local": ["function_calling"],
     },
+    ("nvidia", "chat_completions"): {
+        "hosted": [],
+        "local": ["function_calling"],
+    },
     # OpenCode Zen is a gateway: it forwards to each model's vendor, so the
     # surface offers the wire protocol's tool plumbing but no hosted tools of
     # its own.
@@ -358,6 +362,12 @@ CAPABILITIES: dict[tuple[str, str], dict[str, bool]] = {
         "developer_role_supported": False,
         "automatic_prompt_caching_supported": True,
         "reasoning_controls_supported": True,
+    },
+    # NIM serves open weights behind an OpenAI-compatible API; per-model features
+    # (tools, reasoning, caching) vary, so only the surface's basics are stated.
+    ("nvidia", "chat_completions"): {
+        "streaming_supported": True,
+        "system_prompt_supported": True,
     },
     # Zen forwards to each model's vendor, so anything vendor-dependent
     # (caching mode, reasoning controls, server-side state) is left unstated.
