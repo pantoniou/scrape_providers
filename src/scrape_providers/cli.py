@@ -12,6 +12,7 @@ import yaml
 
 from . import agent_profiles
 from . import arena as arena_mod
+from . import popularity
 from . import registry
 from . import schema as schema_mod
 from . import curation
@@ -168,6 +169,55 @@ def _list_provider_models(name: str, *, curated: bool) -> int:
     return 0
 
 
+def _scrape_all(names: list[str]) -> list[Provider] | None:
+    """Scrape the named providers, or ``None`` (after reporting) on an unknown name."""
+    results: list[Provider] = []
+    for name in names:
+        try:
+            scraper_cls = registry.get(name)
+        except KeyError as exc:
+            print(exc.args[0], file=sys.stderr)
+            return None
+        print(f"scraping {name}...", file=sys.stderr)
+        with scraper_cls() as scraper:
+            results.append(scraper.scrape())
+    return results
+
+
+def _list_models(names: list[str], *, curated: bool) -> str:
+    """Every served model id, sorted, under a ``# provider`` header per provider."""
+    results = _scrape_all(names)
+    if results is None:
+        return ""
+    lines: list[str] = []
+    for provider in sorted(results, key=lambda p: p.name):
+        if curated:
+            provider = curate(provider)
+        lines.append(f"# {provider.name}")
+        lines.extend(sorted(m.id for m in provider.models))
+    return "\n".join(lines) + "\n"
+
+
+def _auto_curate(names: list[str], limit: int) -> str | None:
+    """A proposed curated mapping (YAML): popular on OpenRouter, newest elsewhere."""
+    results = _scrape_all(names)
+    if results is None:
+        return None
+    popular: dict[str, list[str]] = {}
+    if "openrouter" in names:
+        print("reading openrouter rankings...", file=sys.stderr)
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            popular["openrouter"] = popularity.fetch_ranking(client)
+        if not popular["openrouter"]:
+            print(
+                "warning: openrouter rankings unavailable; falling back to newest",
+                file=sys.stderr,
+            )
+    catalog = pruned_catalog(results, include_agents=False)
+    proposal = curation.auto_curate(catalog, limit=limit, popular=popular)
+    return yaml.safe_dump(proposal, sort_keys=True, allow_unicode=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="scrape-providers",
@@ -254,6 +304,27 @@ def main(argv: list[str] | None = None) -> int:
         help="List the model ids a single provider serves and exit (honors --curated).",
     )
     parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help=(
+            "List every model id on every provider (or the --provider selection), "
+            "sorted, one per line under a '# provider' header, and exit "
+            "(honors --curated)."
+        ),
+    )
+    parser.add_argument(
+        "--auto-curate",
+        metavar="N",
+        nargs="?",
+        const=10,
+        type=int,
+        help=(
+            "Propose a curated list of N models per provider (default 10) and exit: "
+            "OpenRouter's most-used models first, topped up with each provider's "
+            "newest. Prints a mapping that --set-curated accepts (use -o to save it)."
+        ),
+    )
+    parser.add_argument(
         "--list-agents",
         action="store_true",
         help="List available agent harnesses and exit.",
@@ -315,6 +386,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list_provider_models:
         return _list_provider_models(args.list_provider_models, curated=args.curated)
+
+    if args.list_models or args.auto_curate is not None:
+        names = args.providers or registry.available()
+        if args.list_models:
+            output = _list_models(names, curated=args.curated)
+        else:
+            output = _auto_curate(names, args.auto_curate)
+        if not output:
+            return 1
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as fh:
+                fh.write(output)
+        else:
+            sys.stdout.write(output)
+        return 0
 
     if args.list_agents:
         print("\n".join(agent_profiles.available()))

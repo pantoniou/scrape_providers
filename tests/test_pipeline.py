@@ -1831,3 +1831,73 @@ def test_nvidia_model_normalization():
     # ids models.dev doesn't know are emitted without metadata but still free
     bare = _model("acme/new-model", {})
     assert bare.pricing.input == 0 and bare.modalities == ["text"]
+
+
+def test_openrouter_rankings_resolve_to_served_ids():
+    from scrape_providers import popularity
+
+    html = (
+        '{\\"date\\":\\"2026-11-05\\",\\"model_permaslug\\":\\"a/x-20260101\\",'
+        '\\"variant\\":\\"standard\\",\\"total_completion_tokens\\":10,'
+        '\\"total_prompt_tokens\\":90}'
+        '{\\"date\\":\\"2026-11-05\\",\\"model_permaslug\\":\\"b/y-20260102\\",'
+        '\\"variant\\":\\"free\\",\\"total_completion_tokens\\":500,'
+        '\\"total_prompt_tokens\\":500}'
+        '{\\"date\\":\\"2026-11-05\\",\\"model_permaslug\\":\\"c/gone-20260103\\",'
+        '\\"variant\\":\\"standard\\",\\"total_completion_tokens\\":1,'
+        '\\"total_prompt_tokens\\":1}'
+    )
+    rows = popularity.parse_rankings(html)
+    assert [r[0] for r in rows] == ["b/y-20260102", "a/x-20260101", "c/gone-20260103"]
+    ids = ["a/x:batch", "a/x", "b/y", "b/y:free"]
+    slugs = {
+        "a/x:batch": "a/x-20260101",
+        "a/x": "a/x-20260101",
+        "b/y": "b/y-20260102",
+        "b/y:free": "b/y-20260102",
+    }
+    # the row's variant picks the id: `free` -> the :free twin, else the bare id
+    assert popularity.resolve(rows, ids, slugs) == ["b/y:free", "a/x"]
+
+
+def test_auto_curate_popular_first_then_newest():
+    from scrape_providers.curation import auto_curate
+
+    def offer(i, cid=None):
+        return {"provider_model_id": i, "canonical_id": cid or i}
+
+    catalog = {
+        "models": [
+            {"name": "old", "introduced": "2025-01-01"},
+            {"name": "mid", "introduced": "2026-01-01"},
+            {"name": "new", "introduced": "2026-06-01"},
+            {"name": "undated"},
+        ],
+        "providers": [
+            {
+                "name": "p",
+                "models": [
+                    offer("old"),
+                    offer("mid"),
+                    offer("new"),
+                    offer("undated"),
+                    offer("new:batch", "new"),
+                ],
+            }
+        ],
+    }
+    # recency alone: newest first, undated last, :batch of a served id is not a model
+    assert auto_curate(catalog, limit=3) == {"p": ["mid", "new", "old"]}
+    # popular ids come first and count toward the limit
+    assert auto_curate(catalog, limit=2, popular={"p": ["undated"]}) == {"p": ["new", "undated"]}
+
+
+def test_list_models_groups_sorted_ids_under_provider_headers(monkeypatch):
+    from scrape_providers import cli
+
+    provs = [
+        Provider(name="b", models=[Model(id="z"), Model(id="a")]),
+        Provider(name="a", models=[Model(id="m")]),
+    ]
+    monkeypatch.setattr(cli, "_scrape_all", lambda names: provs)
+    assert cli._list_models(["a", "b"], curated=False) == "# a\nm\n# b\na\nz\n"

@@ -207,9 +207,30 @@ output formatting, so a change in one layer doesn't ripple into the others.
   otherwise accept `28/05/2026`.
   Every property carries a `description`; the schema is the reference for what a
   field means, so keep them there rather than only in this file.
+- `popularity.py` — OpenRouter's most-used models, read from the token-volume
+  rows embedded in the `/rankings` page payload (escaped JSON, like `arena.py`,
+  so it can break silently; an empty result means "no signal", never an error).
+  A row names a permaslug + variant, mapped to an id through the models API's
+  `canonical_slug` (`free` picks the `:free` id, anything else the bare one).
 - `cli.py` — argparse entry point (`--provider`, `--format`, `--output`,
   `--list-providers`, `--show`, `--curated`, `--arena`, `--validate`,
   `--select`).
+
+### Browsing and auto-curating
+
+`--list-models` prints every served id, sorted, one per line, under a
+`# provider` header (`--provider` narrows, `--curated` filters). It does in one
+scrape what an ad-hoc per-provider shell loop did, and the output is the shape a
+hand-edited curated list starts from.
+
+`--auto-curate [N]` (default 10) prints a proposed curated mapping — the same
+shape `--set-curated` accepts, so `--auto-curate -o c.yaml && --set-curated c.yaml`
+— and persists nothing itself. `curation.auto_curate` takes OpenRouter's most-used
+models first (`popularity.py`), then tops every provider up to N with its newest
+by the merged entry's `introduced` (undated last). A `:variant` of an id the
+provider also serves is a billing mode, not a model, and is never proposed by
+recency. Recency is a heuristic: a provider's newest ids include speed-tier
+routers and previews, so review the proposal before saving it.
 
 ### Partial output (`--select PATH`)
 

@@ -265,3 +265,36 @@ def curate(provider: Provider) -> Provider:
         )
     models = [by_id[i] for i in allowed if i in by_id]
     return provider.model_copy(update={"models": models})
+
+
+def auto_curate(
+    catalog: dict, *, limit: int = 10, popular: dict[str, list[str]] | None = None
+) -> dict[str, list[str]]:
+    """Propose a curated mapping from a built catalog, ``limit`` ids per provider.
+
+    ``popular`` maps a provider to its ids ranked by usage (OpenRouter's
+    rankings); those come first, in rank order. Every provider is then filled up
+    to ``limit`` with its **most recently introduced** models — the merged entry's
+    ``introduced``, so a reseller with no dates of its own (Zen) still sorts by
+    when the vendor shipped the model. Undated models sort last, then by id, so
+    the result is deterministic. A ``:variant`` of an id the provider also serves
+    (``gemini-2.5-flash:batch``) is a billing mode of the same model, not a model
+    of its own, and is never proposed by recency.
+
+    The result has the same shape as :func:`load_curated`, so it can be saved
+    with ``--set-curated`` as-is.
+    """
+    introduced = {m["name"]: str(m.get("introduced") or "") for m in catalog.get("models", [])}
+    out: dict[str, list[str]] = {}
+    for provider in catalog.get("providers", []):
+        offerings = provider.get("models", [])
+        served = {o["provider_model_id"]: o["canonical_id"] for o in offerings}
+        chosen = [i for i in (popular or {}).get(provider["name"], []) if i in served][:limit]
+        fresh = [
+            i for i in served if i not in chosen and not (":" in i and i.split(":")[0] in served)
+        ]
+        # Stable two-pass sort: by id, then newest first (undated "" sorts last).
+        fresh.sort()
+        fresh.sort(key=lambda i: introduced.get(served[i], ""), reverse=True)
+        out[provider["name"]] = sorted(chosen + fresh[: max(0, limit - len(chosen))])
+    return out
