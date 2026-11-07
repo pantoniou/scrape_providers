@@ -65,6 +65,7 @@ _TEXT_MODEL_PREFIXES = ("muse-spark-", "muse-wonder-")
 
 _MODEL_ID = re.compile(r"`([a-z0-9][a-z0-9.\-]*)`")
 _CONTEXT_TOKENS = re.compile(r"([\d,]+)-?\s*tokens?\s+context", re.IGNORECASE)
+_TABLE_TOKENS = re.compile(r"([\d,]+)\s*tokens?", re.IGNORECASE)
 _INPUT_SENTENCE = re.compile(r"\btakes?\s+(.+?)\s+input\b", re.IGNORECASE)
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
 _H2 = re.compile(r"^##\s+.*$", re.MULTILINE)
@@ -81,17 +82,26 @@ class MetaScraper(Scraper):
 
     def scrape(self) -> Provider:
         docs = self._fetch_docs()  # model id -> {modalities, context_window, pricing}
-        models = [
-            Model(
-                id=model_id,
-                modalities=docs.get(model_id, {}).get("modalities") or ["text"],
-                context_window=docs.get(model_id, {}).get("context_window"),
-                capabilities=list(_MUSE_SPARK_CAPABILITIES),
-                pricing=docs.get(model_id, {}).get("pricing"),
+        models = []
+        for model_id in self._fetch_model_ids():
+            if not model_id.startswith(_TEXT_MODEL_PREFIXES):
+                continue
+            # A Contributor-mode variant is the same weights at a discount, and the
+            # models page lists only the base version, so specs fall back to it.
+            # Pricing never does: the variant has its own column on the pricing page.
+            specs = {
+                **docs.get(model_id.removesuffix("-contributor"), {}),
+                **docs.get(model_id, {}),
+            }
+            models.append(
+                Model(
+                    id=model_id,
+                    modalities=specs.get("modalities") or ["text"],
+                    context_window=specs.get("context_window"),
+                    capabilities=list(_MUSE_SPARK_CAPABILITIES),
+                    pricing=docs.get(model_id, {}).get("pricing"),
+                )
             )
-            for model_id in self._fetch_model_ids()
-            if model_id.startswith(_TEXT_MODEL_PREFIXES)
-        ]
         return Provider(
             name=self.name,
             root_url=API_ROOT,
@@ -138,6 +148,10 @@ def _parse_models_table(markdown: str) -> dict[str, dict]:
     """
     out: dict[str, dict] = {}
     for body in _sections(markdown, _H2):
+        tabular = _spec_table(body)
+        if tabular:
+            out.update(tabular)
+            continue
         ids = [i for i in _MODEL_ID.findall(body) if i.startswith(_TEXT_MODEL_PREFIXES)]
         inputs = _INPUT_SENTENCE.search(body)
         context = _CONTEXT_TOKENS.search(body)
@@ -150,6 +164,40 @@ def _parse_models_table(markdown: str) -> dict[str, dict]:
         }
         for model_id in ids:
             out[model_id] = dict(info)
+    return out
+
+
+def _spec_table(body: str) -> dict[str, dict]:
+    """Specs from a section's ``| Model ID | Input | Output | Context window |`` table.
+
+    One row can name several versions in backticks (`muse-spark-1.3`,
+    `muse-spark-1.2`) that share the row's modalities and context window. Columns
+    are located by header, not position; sections without a ``Context window``
+    column (Muse Image, Voice) yield nothing.
+    """
+    rows = [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in body.splitlines()
+        if line.lstrip().startswith("|")
+    ]
+    if not rows:
+        return {}
+    header = [cell.lower() for cell in rows[0]]
+    if "model id" not in header or "input" not in header:
+        return {}
+    ctx_col = next((i for i, h in enumerate(header) if h.startswith("context")), None)
+    in_col = header.index("input")
+    out: dict[str, dict] = {}
+    for row in rows[1:]:
+        if len(row) != len(header) or set(row[0]) <= set(":- "):
+            continue  # the |:---| separator, or a ragged row
+        ids = [i for i in _MODEL_ID.findall(row[0]) if i.startswith(_TEXT_MODEL_PREFIXES)]
+        context = _TABLE_TOKENS.search(row[ctx_col]) if ctx_col is not None else None
+        info = {
+            "modalities": [w for w in re.findall(r"[a-z]+", row[in_col].lower()) if w != "and"],
+            "context_window": int(context.group(1).replace(",", "")) if context else None,
+        }
+        out.update({model_id: dict(info) for model_id in ids})
     return out
 
 

@@ -1231,6 +1231,19 @@ def test_fireworks_unlabelled_single_price_is_input():
     assert pricing.output is None
 
 
+def test_fireworks_embedding_keeps_full_label_over_single_price():
+    from scrape_providers.providers.fireworks import _parse_model_page
+
+    # The page keeps the three-component label even when only one price exists.
+    html = (
+        "<html><body><div><div>$0.10</div>"
+        "<div>Per 1M Tokens (input/cached input/output)</div></div></body></html>"
+    )
+    pricing = _parse_model_page(html)["pricing"]
+    assert pricing.input == 0.1
+    assert pricing.output is None and not pricing.extra
+
+
 def test_opencode_docs_tables_join_by_display_name():
     from scrape_providers.providers.opencode import _parse_docs
 
@@ -1377,6 +1390,28 @@ Muse Spark comes in three versions. All take text, image, and PDF input, return 
     assert docs["muse-wonder-1.0"]["modalities"] == ["text", "image", "video", "audio", "pdf"]
     assert docs["muse-spark-1.2"]["modalities"] == ["text", "image", "pdf"]
     assert "muse-image-1.0" not in docs
+
+
+def test_meta_models_spec_table_parse():
+    from scrape_providers.providers.meta import _parse_models_table
+
+    md = """
+## Muse Spark
+
+| Model ID                                             | Input                          | Output | Context window   |
+| :--------------------------------------------------- | :----------------------------- | :----- | :--------------- |
+| `muse-spark-1.3`, `muse-spark-1.2`, `muse-spark-1.1` | Text, image, video, audio, PDF | Text   | 1,048,576 tokens |
+
+## Muse Image
+
+| Model ID         | Input       | Output |
+| :--------------- | :---------- | :----- |
+| `muse-image-1.0` | Text, image | Image  |
+"""
+    got = _parse_models_table(md)
+    assert set(got) == {"muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"}  # no image model
+    assert got["muse-spark-1.2"]["context_window"] == 1048576
+    assert got["muse-spark-1.1"]["modalities"] == ["text", "image", "video", "audio", "pdf"]
 
 
 def test_meta_pricing_picks_column_by_mode():

@@ -118,7 +118,7 @@ def _parse_serverless_pricing(tree: HTMLParser) -> Pricing | None:
     first (it names the order of the components) and the prices are read from the
     surrounding block. The label is the source of truth for the order: models
     without cached-input pricing publish only two components. Embedding/reranking
-    models publish a single unlabelled price, which is the input price.
+    models publish a single price (labelled or not), which is the input price.
     """
     # Ancestors of the label node also contain its text; the innermost match
     # (shortest text) is the label itself, whose parent holds label + prices.
@@ -130,10 +130,13 @@ def _parse_serverless_pricing(tree: HTMLParser) -> Pricing | None:
     for node in sorted(candidates, key=lambda n: len(n.text(strip=True))):
         label = _PRICE_LABEL.search(node.text(strip=True))
         values = [float(v) for v in _MONEY.findall(node.parent.text())]
-        if label is None:
-            if len(values) != 1:
-                continue
+        # A lone price is the input price, whether or not the label is the full
+        # "(input/cached input/output)" one — embedding models keep that label
+        # over a single figure, and there is no output to pair it with.
+        if len(values) == 1:
             return Pricing(input=values[0])
+        if label is None:
+            continue
         components = [c.strip().lower() for c in label.group(1).split("/")]
         if len(values) != len(components):
             continue

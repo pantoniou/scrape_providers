@@ -272,7 +272,9 @@ available for all its models — the reason to scrape it directly rather than re
 on OpenRouter's spotty per-host cache figures. The English page went missing
 upstream for a while (as of 2026-09-07 their server returned the SPA index for a
 missing path — a useless HTTP 200 — so `_parse_pricing` found no `MODEL` table
-and the unpriced-models warning carried the signal); it is back, and every price
+and the unpriced-models warning carried the signal); it is back (**at the trailing-slash URL `/quick_start/pricing/`** — without the
+slash the server again answers 200 with the "Your First API Call" home page, and
+both models went unpriced), and every price
 is now split over an **OFF-PEAK / PEAK** pair of rows beneath the row that names
 it. Only the **peak (standard)** rate is taken, as the Google scraper keeps
 Standard and drops Batch/Flex/Priority: off-peak is half price for scheduling
@@ -360,7 +362,11 @@ version id named in backticks in it) and `docs/pricing-rate-limits` (each
 `### Muse X` section lists "Model(s): `id` … in Standard mode; `id` … in
 Contributor mode" ahead of one table with a Standard and a Contributor column;
 an id takes the column of its mode, and "Not available" cells yield no pricing).
-Both docs pages were tables until they were rewritten as prose; if models start
+The models page has flipped between layouts: it is a table per `## Muse X`
+section again (`| Model ID | Input | Output | Context window |`, one row naming
+several versions in backticks; `_spec_table`), with the prose parser kept as the
+fallback. The table lists base versions only, so a `-contributor` variant takes
+its specs (never its price) from the base id. If models start
 emitting unpriced or without a context window again, the layout moved — the
 unpriced-models warning is the signal. Capabilities (tool calling, structured
 outputs, always-on reasoning with `reasoning_effort`, web search grounding) are

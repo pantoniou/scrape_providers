@@ -63,7 +63,9 @@ MODELS_URL = "https://api.deepseek.com/models"
 # `_fetch_versions`), never for prices: that table is in CNY and peak/off-peak
 # tiered, whereas the version cell is a plain ASCII build name in either locale.
 VERSIONS_URL = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
-PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing"
+# The trailing slash matters: without it the docs server answers 200 with the
+# "Your First API Call" home page (no MODEL table), as it once did for a missing path.
+PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing/"
 
 # "模型版本" — the only row on the page that is a version marker.
 _VERSION_ROW = "版本"
