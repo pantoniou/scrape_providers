@@ -213,13 +213,26 @@ def _parse_pricing(markdown: str) -> dict[str, dict]:
         line = _MODELS_LINE.search(body)
         if line is None:
             continue
+        header = next(
+            (_cells(row) for row in body.splitlines() if re.match(r"^\s*\|\s*Usage\s*\|", row)), []
+        )
+        by_mode = {
+            cell.split()[0].lower(): index
+            for index, cell in enumerate(header[1:])
+            if cell.lower().startswith(("standard ", "contributor "))
+        }
         columns = _tier_pricing(body)
         if not columns:
             continue
         for clause in line.group(1).split(";"):
             contributor = "contributor" in clause.lower()
             for model_id in _MODEL_ID.findall(clause):
-                column = 1 if contributor or model_id.endswith("-contributor") else 0
+                mode = (
+                    "contributor"
+                    if contributor or model_id.endswith("-contributor")
+                    else "standard"
+                )
+                column = by_mode.get(mode, len(columns) if by_mode or mode == "contributor" else 0)
                 if column < len(columns) and columns[column] is not None:
                     out[model_id] = {"pricing": columns[column]}
     return out

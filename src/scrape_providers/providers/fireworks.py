@@ -1,24 +1,13 @@
 """Fireworks AI provider scraper — fully native (no OpenRouter).
 
-Two native sources:
-
-* ``GET https://api.fireworks.ai/inference/v1/models`` (requires
-  ``FIREWORKS_API_KEY``) — the models Fireworks actually serves, with context
-  length and tool/image support flags.
-* One public model page per served model
-  (``fireworks.ai/models/fireworks/<slug>``) — its "Available Serverless" block
-  carries the per-million-token price triple (input / cached input / output) and
-  the display name. Fireworks' ``/pricing`` page only covers fine-tuning and
-  dedicated deployments, so serverless prices have to come from the model pages.
-
-Fireworks' *routers* (``accounts/fireworks/routers/...``, the -fast/-turbo speed
-tiers) have no public model page, so they are emitted without pricing rather
-than inheriting the base model's — their whole point is a different price/speed
-point.
+The authenticated models API supplies served IDs and capabilities. The public
+serverless pricing table supplies published rates, including Fast routes.
+Model pages and the public catalog supply additional per-model prices.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 
@@ -32,6 +21,8 @@ from . import created_date
 
 API_ROOT = "https://api.fireworks.ai/inference/v1"
 MODELS_URL = f"{API_ROOT}/models"
+PRICING_DOC = "https://docs.fireworks.ai/serverless/pricing.md"
+MODEL_CATALOG = "https://fireworks.ai/models?modelTypes=Serverless&show=serverless"
 MODEL_PAGE = "https://fireworks.ai/models/fireworks/{slug}"
 
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
@@ -46,9 +37,17 @@ class FireworksScraper(Scraper):
 
     def scrape(self) -> Provider:
         models: list[Model] = []
-        for entry in self._fetch_models():
+        entries = self._fetch_models()
+        prices = _parse_pricing_doc(self._fetch_public(PRICING_DOC))
+        catalog_prices: dict[str, Pricing] | None = None
+        for entry in entries:
             model_id = entry["id"]
             page = self._fetch_model_page(model_id)
+            pricing = prices.get(model_id) or page.get("pricing")
+            if pricing is None and model_id.startswith("accounts/fireworks/models/"):
+                if catalog_prices is None:
+                    catalog_prices = _parse_catalog_pricing(self._fetch_public(MODEL_CATALOG))
+                pricing = catalog_prices.get(model_id)
             modalities = ["text"] + (["image"] if entry.get("supports_image_input") else [])
             models.append(
                 Model(
@@ -59,7 +58,7 @@ class FireworksScraper(Scraper):
                     capabilities=["function_calling"] if entry.get("supports_tools") else [],
                     open_source=page.get("open_source", False),
                     introduced=created_date(entry),
-                    pricing=page.get("pricing"),
+                    pricing=pricing,
                 )
             )
         return Provider(
@@ -88,15 +87,75 @@ class FireworksScraper(Scraper):
         """Best-effort scrape of a model's public page (display name, price, OSS)."""
         if "/models/" not in model_id:  # routers have no public page
             return {}
+        html = self._fetch_public(MODEL_PAGE.format(slug=model_id.rsplit("/", 1)[-1]))
+        return _parse_model_page(html) if html else {}
+
+    def _fetch_public(self, url: str) -> str:
         try:
-            resp = self._client.get(
-                MODEL_PAGE.format(slug=model_id.rsplit("/", 1)[-1]),
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
+            resp = self._client.get(url, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
         except httpx.HTTPError:
-            return {}
-        return _parse_model_page(resp.text)
+            return ""
+        return resp.text
+
+
+def _parse_pricing_doc(markdown: str) -> dict[str, Pricing]:
+    """Read the Standard column, keeping alternate serving modes separate."""
+    rows = re.findall(
+        r"^\|\s*\[([^\]]+)\]\(https://app\.fireworks\.ai/models/fireworks/([\w.-]+)\)"
+        r"\s*\|([^|\n]+)\|",
+        markdown,
+        re.MULTILINE,
+    )
+    prices = {}
+    for name, slug, standard in rows:
+        values = _MONEY.findall(standard)
+        if len(values) != 3 or name.endswith("(US)") or " Ultra-fast " in name:
+            continue
+        model_id = (
+            f"accounts/fireworks/routers/{slug}-fast"
+            if name.endswith(" Fast")
+            else f"accounts/fireworks/models/{slug}"
+        )
+        input_rate, cached, output = map(float, values)
+        prices[model_id] = Pricing(input=input_rate, output=output, extra={"cache_read": cached})
+    return prices
+
+
+def _parse_catalog_pricing(html: str) -> dict[str, Pricing]:
+    # The model library renders only the first page of cards. Its embedded
+    # model list also contains the prices for cards behind "Load more".
+    prices = {}
+    decoder = json.JSONDecoder()
+    for script in HTMLParser(html).css("script"):
+        match = re.fullmatch(r"self\.__next_f\.push\((.*)\)", script.text(), re.DOTALL)
+        if not match:
+            continue
+        try:
+            record = json.loads(match[1])
+        except ValueError:
+            continue
+        if len(record) < 2 or not isinstance(record[1], str):
+            continue
+        for marker in re.finditer(r'"models":(?=\[\{"_id":)', record[1]):
+            try:
+                models, _ = decoder.raw_decode(record[1], marker.end())
+            except ValueError:
+                continue
+            for model in models:
+                slug = model.get("slug", "")
+                input_rate = model.get("pricingInput")
+                output_rate = model.get("pricingOutput")
+                if (
+                    slug.startswith("fireworks/")
+                    and model.get("pricingUnit") == "million"
+                    and isinstance(input_rate, (int, float))
+                    and isinstance(output_rate, (int, float))
+                ):
+                    prices[f"accounts/fireworks/models/{slug.removeprefix('fireworks/')}"] = (
+                        Pricing(input=input_rate, output=output_rate)
+                    )
+    return prices
 
 
 def _parse_model_page(html: str) -> dict:

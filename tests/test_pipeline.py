@@ -1221,6 +1221,38 @@ def test_fireworks_serverless_pricing_parse():
     assert page["pricing"].extra["cache_read"] == 0.16
 
 
+def test_fireworks_published_prices_keep_serving_modes_separate():
+    from scrape_providers.providers.fireworks import _parse_catalog_pricing, _parse_pricing_doc
+
+    base = "https://app.fireworks.ai/models/fireworks/glm-5p3"
+    prices = _parse_pricing_doc(
+        f"| [GLM 5.3]({base}) | $1.40 / $0.26 / $4.40 | $1.75 / $0.325 / $5.50 |\n"
+        f"| [GLM 5.3 (US)]({base}) | $2.10 / $0.39 / $6.60 | — |\n"
+        rf"| [GLM 5.3 Fast]({base}) | \$2.10 / \$0.39 / \$6.60 | — |"
+    )
+    assert len(prices) == 2
+    assert prices["accounts/fireworks/models/glm-5p3"].input == 1.40
+    fast = prices["accounts/fireworks/routers/glm-5p3-fast"]
+    assert (fast.input, fast.extra["cache_read"], fast.output) == (2.10, 0.39, 6.60)
+
+    import json
+
+    models = [
+        {
+            "_id": "inkling",
+            "slug": "fireworks/inkling",
+            "pricingUnit": "million",
+            "pricingInput": 1,
+            "pricingOutput": 4.05,
+        },
+        {"_id": "unpriced", "slug": "fireworks/unpriced"},
+    ]
+    payload = json.dumps([1, '25:{"models":' + json.dumps(models) + "}"])
+    catalog = _parse_catalog_pricing(f"<script>self.__next_f.push({payload})</script>")
+    assert set(catalog) == {"accounts/fireworks/models/inkling"}
+    assert catalog["accounts/fireworks/models/inkling"].output == 4.05
+
+
 def test_fireworks_unlabelled_single_price_is_input():
     from scrape_providers.providers.fireworks import _parse_model_page
 
@@ -1422,11 +1454,11 @@ def test_meta_pricing_picks_column_by_mode():
 
 Model: `muse-wonder-1.0`.
 
-| Usage        | Standard mode (per 1M tokens) | Contributor mode (per 1M tokens) |
+| Usage        | Contributor mode (per 1M tokens) | Standard mode (per 1M tokens) |
 | :----------- | :---------------------------- | :------------------------------- |
-| Cached input | $0.20                         | Not available                    |
-| Input        | $4.00                         | Not available                    |
-| Output       | $20.00                        | Not available                    |
+| Cached input | Not available                    | $0.20                    |
+| Input        | Not available                    | $4.00                    |
+| Output       | Not available                    | $20.00                    |
 
 ### Muse Spark
 
