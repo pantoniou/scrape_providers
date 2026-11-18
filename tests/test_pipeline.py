@@ -604,6 +604,48 @@ def test_deepseek_version_row_gives_in_place_revision_date():
     assert "deepseek-v4-flash-vision-exp" not in got
 
 
+@pytest.mark.parametrize(
+    ("provider", "models", "orchestrate"),
+    [
+        (
+            "openai",
+            [
+                "gpt-6-luna",
+                "gpt-6.1-terra",
+                "gpt-6.1-sol",
+                "gpt-6.2-sol",
+                "gpt-6-astra",
+                "gpt-6.2-astra",
+                "gpt-6.2-astra-pro",
+                "gpt-oss-120b",
+            ],
+            ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.1-terra"],
+        ),
+        (
+            "anthropic",
+            [
+                "claude-haiku-5-5",
+                "claude-sonnet-5-5",
+                "claude-opus-5-5",
+                "claude-fable-5-1",
+                "claude-fable-5-2-20261109",
+                "claude-fable-5-2",
+            ],
+            ["claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5"],
+        ),
+    ],
+)
+def test_first_party_personas_use_latest_capability_tiers(provider, models, orchestrate):
+    from scrape_providers.emit import pruned_catalog
+
+    catalog = pruned_catalog([Provider(name=provider, models=[Model(id=id) for id in models])])
+    entry = catalog["providers"][0]
+    assert entry["personas"]["orchestrate"] == orchestrate
+    assert all(len(choices) <= 3 for choices in entry["personas"].values())
+    assert set(models) == {model["provider_model_id"] for model in entry["models"]}
+    assert entry["personas"]["summarize"][0] in {"gpt-6-luna", "claude-haiku-5-5"}
+
+
 def test_personas_rank_by_strength_then_cost():
     from scrape_providers.personas import PERSONAS, build_personas
 

@@ -306,7 +306,9 @@ def build_catalog(providers: list[Provider], *, include_agents: bool = True) -> 
     }
     released = {m["name"]: m["introduced"] for m in model_list if m.get("introduced")}
     for entry in provider_entries:
-        entry["personas"] = personas_mod.build_personas(entry["models"], strength, released)
+        entry["personas"] = personas_mod.build_personas(
+            entry["models"], strength, released, provider=entry["name"]
+        )
     catalog = {"models": model_list, "providers": provider_entries}
     if include_agents:
         catalog["agents"] = agent_profiles.build_agents()

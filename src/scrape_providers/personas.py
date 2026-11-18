@@ -1,32 +1,4 @@
-"""Per-provider persona rankings: which of a provider's models to reach for.
-
-An orchestrator picking models inside one provider's lineup asks a narrower
-question than "what is the best model" — it asks "which of *these* should run
-this step". The answer differs per step (a planner wants the strongest model
-almost regardless of price; a file-reading explorer wants the cheapest one that
-is still competent) and per provider, since each serves a different lineup at
-its own prices.
-
-So each provider entry carries a ``personas`` map: persona -> that provider's
-models in preference order. Two things drive the order.
-
-**Strength** is LMArena Elo, taken from the model's merged catalog entry rather
-than from the offering, so every provider serving a scored model inherits its
-score (Fireworks' ``glm-5p3`` is the ``glm-5.3`` the board ranks). Models the
-board doesn't score are left out rather than guessed at: the only other signal
-available is price, and imputing strength from price would make the two axes the
-same axis and the ranking circular.
-
-**Cost** is a blend of the offering's own input and output prices, weighted per
-persona, because personas have genuinely different token shapes — a reviewer
-reads far more than it writes, a planner writes long reasoning traces. Prices are
-the provider's, so the same model can rank differently across providers.
-
-Models are then reduced to the **Pareto frontier**: one that is both weaker and
-more expensive than another of the same provider's models is dominated and never
-worth dispatching to, so it is dropped rather than ranked last. What remains is
-ordered by the persona's own strength/cost trade-off.
-"""
+"""Rank current first-party model tiers and reseller offerings by persona."""
 
 from __future__ import annotations
 
@@ -68,6 +40,61 @@ _PROFILES = (
     # The cheapest competent model: almost all input, a paragraph of output.
     Persona("summarize", strength_weight=0.15, input_share=0.9),
 )
+
+
+# Each provider's chat families, from least to most capable. Full matches
+# keep aliases, paid effort variants, batch, and specialist models out.
+_NATIVE_TIERS = {
+    "anthropic": tuple(
+        rf"claude-{family}-(?P<version>\d+(?:\.\d+)*)"
+        for family in ("haiku", "sonnet", "opus", "fable")
+    ),
+    "openai": tuple(
+        rf"gpt-(?P<version>\d+(?:\.\d+)*)-{family}"
+        for family in ("mini", "luna", "terra", "sol", "astra")
+    ),
+    "google": tuple(
+        rf"gemini-(?P<version>\d+(?:\.\d+)*)-{family}"
+        for family in ("flash-lite", "(?:flash|hydrogen)", "argon", "(?:pro|carbon)")
+    ),
+    "meta": tuple(
+        rf"muse-{family}-(?P<version>\d+(?:\.\d+)*)" for family in ("ember", "spark", "wonder")
+    ),
+    "deepseek": (
+        r"deepseek(?:-v(?P<version>\d+(?:\.\d+)*))?-flash",
+        r"deepseek(?:-v(?P<version>\d+(?:\.\d+)*))?-pro",
+    ),
+}
+_MAX_NATIVE_CHOICES = 3
+
+
+def _native_personas(
+    offerings: list[dict], tiers: tuple[str, ...], introduced: dict[str, str]
+) -> dict[str, list[str]]:
+    current = []
+    for pattern in tiers:
+        candidates = []
+        for offering in offerings:
+            cid = offering["canonical_id"]
+            match = re.fullmatch(pattern, cid)
+            if not match:
+                continue
+            version = tuple(int(part) for part in (match["version"] or "0").split("."))
+            model_id = offering["provider_model_id"]
+            # Version ties favor stable dispatch IDs over dated snapshots.
+            snapshot = re.search(r"-(\d{8})$", model_id)
+            candidates.append((version, snapshot is None, -_recency(cid, introduced), model_id))
+        if candidates:
+            current.append(max(candidates)[-1])
+    if not current:
+        return {}
+
+    result = {}
+    for persona in _PROFILES:
+        target = round(persona.strength_weight * (len(current) - 1))
+        nearest = sorted(range(len(current)), key=lambda tier: (abs(tier - target), -tier))
+        result[persona.name] = [current[tier] for tier in nearest[:_MAX_NATIVE_CHOICES]]
+    return result
 
 
 # Suffixes naming a *variant* of a model rather than a different model. Two
@@ -182,23 +209,13 @@ def build_personas(
     offerings: list[dict],
     strength: dict[str, float],
     introduced: dict[str, str] | None = None,
+    *,
+    provider: str | None = None,
 ) -> dict[str, list[str]]:
-    """``persona -> provider model ids, best first`` for one provider's lineup.
-
-    ``offerings`` are the provider's catalog offerings (``canonical_id``,
-    ``provider_model_id``, ``pricing``); ``strength`` maps canonical id -> Elo and
-    ``introduced`` canonical id -> release date, used only to break ties.
-
-    Every priced offering is ranked — a weaker or dearer model is ordered lower,
-    never dropped, since "which of this lineup runs this step" wants the whole
-    lineup tiered, and the last resort still has to be nameable. Offerings split
-    into two tiers: those with a strength (measured, or inherited from the model
-    they are a variant of) rank above those without, and the remainder fall back
-    to price, which for a persona that values strength means dearest first and
-    for a cost-led one means cheapest first. An offering with no usable price
-    can't be placed on either axis and is the only kind left out.
-    """
+    """Return dispatch IDs in preference order for each persona."""
     introduced = introduced or {}
+    if provider in _NATIVE_TIERS:
+        return _native_personas(offerings, _NATIVE_TIERS[provider], introduced)
     resolved = [
         (
             o["provider_model_id"],
